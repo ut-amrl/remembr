@@ -5,6 +5,7 @@ import sys, re
 # from langchain_openai import OpenAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 
+from langchain_openai import ChatOpenAI
 from langchain_community.chat_models import ChatOllama
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
@@ -123,8 +124,8 @@ class ReMEmbRAgent(Agent):
         llm = None
         # Support for LLM Gateway
         if 'gpt-4' in llm_type:
-            # TODO: ADD OpenAI here
-            pass
+            import os
+            llm = ChatOpenAI(model=llm_type, api_key=os.environ.get("OPENAI_API_KEY"))
 
         # Support for NIMs
         elif 'nim/' in llm_type:
