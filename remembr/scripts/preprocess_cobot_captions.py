@@ -21,35 +21,130 @@ from scipy.spatial.transform import Rotation
 import shutil
 import json
 
-import tqdm
+from tqdm import tqdm
+import cv2
 
 # ROS
 import rosbag
 from cv_bridge import CvBridge
+from sensor_msgs.msg import CompressedImage
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 def run_video_in_segs(args):
     bridge = CvBridge()
     bagfile = os.path.join(args.data_path, f"{args.bagname}.bag")
 
     embedder = HuggingFaceEmbeddings(model_name='mixedbread-ai/mxbai-embed-large-v1')
+    args.device_map = 'auto'
     vila_model = VILACaptioner(args)
 
     with rosbag.Bag(bagfile, 'r') as bag:
-        pass
+        n_base_images = bag.get_message_count(topic_filters=['/camera2/color/image_raw/compressed'])
+        n_wrist_images = bag.get_message_count(topic_filters=['/camera/color/image_raw/compressed'])
+
+        base_positions = []
+        base_captions, wrist_captions = [], []
+        segments = []
+
+        # caption base images
+        start_time = None
+        images = []
+        for topic, msg, t in tqdm(bag.read_messages(topics=["/camera2/color/image_raw/compressed"]), total=n_base_images, desc="Captioning base images"):
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+            images.append(pil_image)
+            if start_time is None:
+                start_time = t.to_sec()
+            elif t.to_sec() - start_time > args.seconds_per_caption:
+                images = images[::30//args.num_video_frames]
+                out_text = vila_model.caption(images)
+                # store time window & captions for base camera
+                segments.append((start_time, t.to_sec()))
+                base_captions.append(out_text)
+                start_time = t.to_sec()
+                images = [pil_image]
+
+        # process base localization
+        sid = 0
+        positions = []
+        for topic, msg, t in bag.read_messages(topics=["/localization"]):
+            start_t, end_t = segments[sid]
+            if t.to_sec() < start_t:
+                continue
+            elif t.to_sec() > end_t:
+                pos = np.mean(positions, axis=0)
+                base_positions.append(pos)
+                sid += 1
+                positions = [(msg.pose.x, msg.pose.y)]
+            else:
+                positions.append((msg.pose.x, msg.pose.y))
+            if sid >= len(segments):
+                break
+            
+        # caption wrist images
+        sid = 0
+        images = []
+        for topic, msg, t in tqdm(bag.read_messages(topics=["/camera/color/image_raw/compressed"]), total=n_wrist_images, desc="Captioning wrist images"):
+            start_t, end_t = segments[sid]
+            if t.to_sec() < start_t:
+                continue
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+            if t.to_sec() > end_t:
+                images = images[::30//args.num_video_frames]
+                out_text = vila_model.caption(images)
+                wrist_captions.append(out_text)
+                sid += 1
+                images = [pil_image]
+            else:
+                images.append(pil_image)
+            if sid >= len(segments):
+                break
+
+        
+        outputs = []
+        for base_caption, wrist_caption, base_position, (start_t, end_t) in zip(base_captions, wrist_captions, base_positions, segments):
+            base_caption_embedding = embedder.embed_query(base_caption)
+            wrist_caption_embedding = embedder.embed_query(wrist_caption)
+            entity = {
+                "time": np.mean([start_t, end_t]),
+                "base_position": base_position,
+                "base_caption": base_caption,
+                "base_caption_embedding": base_caption_embedding,
+                "wrist_caption": wrist_caption,
+                "wrist_caption_embedding": wrist_caption_embedding
+            }
+            outputs.append(entity)
+
+        os.makedirs(args.out_path, exist_ok=True)
+        captions_location = os.path.join(args.out_path, args.bagname)
+        os.makedirs(captions_location, exist_ok=True)
+        filepath = os.path.join(captions_location, f'captions_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
+        with open(filepath, 'w') as f:
+            print(f"Writing data to {filepath}")
+            json.dump(outputs, f, cls=NumpyEncoder)
+
 
 if __name__ == "__main__":
     default_query = "<video>\n You are a wandering around a household kitchen/work area.\
         Please describe in detail what you see in the few seconds of the video. \
         Specifically focus on the people, objects, environmental features, events/ectivities, and other interesting details. Think step by step about these details and be very specific."
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/VILA1.5-13b")
+    parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--bagname", type=str, default="")
     parser.add_argument("--data_path", type=str, default="./coda_data")
     parser.add_argument("--out_path", type=str, default="./data/captions")
-    parser.add_argument("--captioner_name", type=str, default="VILA1.5-13b")
+    parser.add_argument("--captioner_name", type=str, default="VILA1.5-8b")
 
-    parser.add_argument("--seconds_per_caption", type=int, default=3)
+    parser.add_argument("--seconds_per_caption", type=int, default=5)
 
     parser.add_argument("--video-file", type=str, default=None)
     parser.add_argument("--num-video-frames", type=int, default=6)
