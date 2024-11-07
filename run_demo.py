@@ -29,8 +29,8 @@ for i in range(Nt):
     t += dt
 
 
-agent = ReMEmbRAgent(llm_type='command-r')
-# agent = ReMEmbRAgent(llm_type='gpt-4o')
+# agent = ReMEmbRAgent(llm_type='command-r')
+agent = ReMEmbRAgent(llm_type='gpt-4o')
 agent.set_memory(memory)
 
 response = agent.query("I have a bag of cherries. Where should I put it?")
