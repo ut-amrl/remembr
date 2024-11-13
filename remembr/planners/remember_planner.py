@@ -105,11 +105,10 @@ class ReMEmbRPlanner(Planner):
         ### Load vectorstore
         self.embeddings = HuggingFaceEmbeddings(model_name='mixedbread-ai/mxbai-embed-large-v1')
 
-        # self.update_for_instance() # ref_time is None this time
         top_level_path = str(os.path.dirname(__file__)) + '/../'
-        self.agent_prompt = file_to_string(top_level_path+'prompts/planner_system_prompt.txt')
-        self.generate_prompt = file_to_string(top_level_path+'prompts/planner_gen_system_prompt.txt')
-        self.agent_gen_only_prompt = file_to_string(top_level_path+'prompts/agent_gen_system_prompt.txt')
+        self.agent_prompt = file_to_string(top_level_path+'prompts/planner/planner_system_prompt.txt')
+        self.generate_prompt = file_to_string(top_level_path+'prompts/planner/generate_system_prompt.txt')
+        self.agent_gen_only_prompt = file_to_string(top_level_path+'prompts/planner/planner_gen_system_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.agent_call_count = 0
