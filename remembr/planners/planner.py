@@ -7,6 +7,7 @@ class PlannerOutput:
     positions: list
     plans: list
     text: str
+    question: str
     
     @classmethod
     def from_dict(cls, dict_input):      

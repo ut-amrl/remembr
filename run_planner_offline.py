@@ -46,3 +46,4 @@ if __name__ == "__main__":
         print(response.positions)
         print(response.plans)
         print(response.text)
+        print(response.question)
