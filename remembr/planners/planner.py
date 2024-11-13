@@ -21,3 +21,6 @@ class Planner:
     
     def query_positions(self, query: str) -> list:
         return self.query(query).positions
+    
+    def query_plans(self, query: str) -> list:
+        return self.query(query).plans
