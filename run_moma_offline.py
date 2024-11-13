@@ -38,3 +38,4 @@ if __name__ == "__main__":
         print(response.position)
         print(response.text)
 
+    # python run_moma_offline.py --data_path /home/tiejean/Workspace/RobotMem/data/captions/2024-11-06-16-12-12/captions_VILA1.5-8b_3_secs.json

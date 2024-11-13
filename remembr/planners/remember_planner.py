@@ -25,8 +25,7 @@ from langchain_core.pydantic_v1 import BaseModel, Field
 
 
 import sys, os
-sys.path.append(sys.path[0] + '/..')
-
+sys.path.append(os.getcwd())
 
 from remembr.utils.util import file_to_string
 from remembr.tools.tools import *
@@ -34,9 +33,7 @@ from remembr.tools.functions_wrapper import FunctionsWrapper
 
 from remembr.memory.memory import Memory
 
-from remembr.agents.agent import Agent, AgentOutput
-
-
+from remembr.planners.planner import Planner, PlannerOutput
 
 ### Print out state of the system
 def inspect(state):
@@ -92,7 +89,7 @@ def try_except_continue(state, func):
             traceback.print_exception(*sys.exc_info())
             continue
 
-class ReMEmbRAgent(Agent):
+class ReMEmbRPlanner(Planner):
 
     def __init__(self, llm_type='gpt-4o', num_ctx=8192, temperature=0):
 
@@ -110,8 +107,8 @@ class ReMEmbRAgent(Agent):
 
         # self.update_for_instance() # ref_time is None this time
         top_level_path = str(os.path.dirname(__file__)) + '/../'
-        self.agent_prompt = file_to_string(top_level_path+'prompts/agent_system_prompt.txt')
-        self.generate_prompt = file_to_string(top_level_path+'prompts/generate_system_prompt.txt')
+        self.agent_prompt = file_to_string(top_level_path+'prompts/planner_system_prompt.txt')
+        self.generate_prompt = file_to_string(top_level_path+'prompts/planner_gen_system_prompt.txt')
         self.agent_gen_only_prompt = file_to_string(top_level_path+'prompts/agent_gen_system_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
@@ -257,8 +254,6 @@ class ReMEmbRAgent(Agent):
 
         response = model.invoke({"question": question, "chat_history": messages[:]})
 
-        import pdb; pdb.set_trace()
-
         if response.tool_calls:
             for tool_call in response.tool_calls:
                 if tool_call['name'] != "__conversational_response":
@@ -308,35 +303,35 @@ class ReMEmbRAgent(Agent):
         )
 
         model = gen_prompt | self.chat
-
+        
         response = model.invoke({"question": question, "chat_history": messages[1:]})
-
+        
         # let us parse and check the output is a dictionary. raise error otherwise
         response = ''.join(response.content.splitlines())
-
+        
         try:
             if '```json' not in response:
                 # try parsing on its own since we cannot always trust llms
                 parsed = eval(response) 
             else:
                 parsed = parse_json(response)
-
+                
             # then check it has all the required keys
-            keys_to_check_for = ["time", "text", "binary", "position", "duration"]
+            keys_to_check_for = ["answer_reasoning", "positions", "plans", "text"]
 
             for key in keys_to_check_for:
                 if key not in parsed:
                     raise ValueError("Missing all the required keys during generate. Retrying...")
                 
-            if type(parsed['position']) == str:
-                parsed['position'] = eval(parsed['position'])
+            if type(parsed['positions']) == str:
+                parsed['positions'] = eval(parsed['positions'])
             
-            if (parsed['position'] is not None) and len(parsed['position']) != 3:
-                raise ValueError(f"Shape of position was incorrect. {parsed['position']}. Retrying...")
+            if type(parsed['plans']) == str:
+                parsed['plans'] = eval(parsed['plans'])
 
         except:
             raise ValueError("Generate call failed. Retrying...")
-
+        
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.agent_call_count = 0
         return {"messages": [str(parsed)]}
@@ -407,24 +402,9 @@ class ReMEmbRAgent(Agent):
         else:
             parsed = parse_json(response)
 
-        response = AgentOutput.from_dict(parsed)
-
+        response = PlannerOutput.from_dict(parsed)
 
         return response
 
 if __name__ == "__main__":
-
-    from memory.milvus_memory import MilvusMemory
-
-    # llm_name = 
-    # Options: 'nim/meta/llama-3.1-405b-instruct', 'gpt-4o', or any Ollama LLMs (such as 'codestral')
-    memory = MilvusMemory("test", db_ip='127.0.0.1')
-
-    llm_name = 'gpt-4o' 
-    agent = ReMEmbRAgent(llm_type=llm_name)
-
-    agent.set_memory(memory)
-
-    response = agent.query("Where can I sit?")
-    response = agent.query_position("Where can I sit?")
-
+    pass
