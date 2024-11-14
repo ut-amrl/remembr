@@ -312,15 +312,12 @@ class ReMEmbRPlanner(Planner):
                 parsed = parse_json(response)
                 
             # then check it has all the required keys
-            keys_to_check_for = ["answer_reasoning", "positions", "plans", "text"]
+            keys_to_check_for = ["answer_reasoning", "question", "plans"]
 
             for key in keys_to_check_for:
                 if key not in parsed:
                     raise ValueError("Missing all the required keys during generate. Retrying...")
                 
-            if type(parsed['positions']) == str:
-                parsed['positions'] = eval(parsed['positions'])
-            
             if type(parsed['plans']) == str:
                 parsed['plans'] = eval(parsed['plans'])
 
@@ -336,17 +333,13 @@ class ReMEmbRPlanner(Planner):
         messages = state["messages"]
         question = messages[0].content
         last_message = eval(messages[-1].content)
-        
-        positions, plans = last_message["positions"], last_message["plans"]
-        if len(positions) != len(plans):
-            result["is_plan_valid"] = "no"
-            result["answer_reasoning"] = f"In this plan, the length of positions ({len(positions)}) and the length of plans ({len(plans)}) do not match."
-        elif self.critic_call_count >= 2:
+
+        if self.critic_call_count >= 2:
             result["is_plan_valid"] = "yes"
             result["answer_reasoning"] = "exceeding max critic call limit"
         else:
-            detailed_plans = [f"{plan} at {pos}" for plan, pos in zip(plans, positions)]
-            
+            detailed_plans = [f"{plan['action']} {plan['object']} at {plan['position']} because {plan['reason']}" for plan in last_message["plans"]]
+        
             prompt = PromptTemplate(
                 template=self.critic_prompt,
                 input_variables=["question", "plans"],

@@ -18,10 +18,11 @@ Your response should look like the following: (be careful about escaping quotes 
     "tool_input": {{{{
         "response": {{{{
             "answer_reasoning": "-input your reasoning in here for the answer. If you do not know the answer, provide your best guess.-", 
-            "positions": "[[x1,y1,z1], [x2,y2,z2]]"
-            "plans": "[\"find obj1\", \"find obj2\"]"
-            "text": "--a text answer here. This should be as if you are responding to a user, so do not provide low-level details.--"
-            "question": "--a text answer here. If you think the task is ambiguous based on your memory, you can ask user questions through this field. If not, keep it as an empty string"
+            "question": "--a text answer here. If you think the task is ambiguous based on your memory, you can ask user questions through this field. If not, keep it as an empty string",
+            "plans": "[
+                {{{{"reason": "-input your reason for this plan-", "action": "-action on object. This should always be 'find'-", "object": "-object-", "position": "-position of the object in (x,y,z) format-"}}}},
+                {{{{"reason": "-input your reason for this plan-", "action": "-action on object. This should always be 'find'-", "object": "-object-", "position": "-position of the object in (x,y,z) format-"}}}}
+            ]"
         }}}}
     }}}}
 }}}}
@@ -43,11 +44,13 @@ Question: Make cereal.
     "tool": "__conversational_response", 
     "tool_input": {{{{
         "response": {{{{
-            "answer_reasoning": "I see that there is milk, cereal, and a big enough bowl for cereal, so I can make a plan to help user find the items to make cereal.", 
-            "positions": "[[1.54,2.14,0.0], [1.54,1.32,0.0], [0.32,3.83,0.0]]",
-            "plans": "['find milk', 'find cereal', 'find a bowl for cereal']",
-            "text": "You can find milk, cereal, and a bowl in this house to make cereal.",
-            "question": ""
+            "answer_reasoning": "I know I need milk, cereal, and a big enough bowl to make cereal. Based on my knowledge, I know where I can find these objects. Therefore, I can make a plan to help user find the items to make cereal.", 
+            "question": "",
+            "plans": "[
+                {{{{"reason": "I need milk for cereal and I know milk is usually stored at this location.", "action": "find", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
+                {{{{"reason": "I need cereal for cereal and I saw cereal at this location.", "action": "find", "object": "cereal", "position": "[1.54,1.32,0.0]"}}}},
+                {{{{"reason": "I need a cereal bowl and I know I am likely to find bowl in kitchen area.", "action": "find", "object": "a cereal bowl", "position": "[0.32,3.83,0.0]"}}}},
+            ]"
         }}}}
     }}}}
 }}}}
@@ -61,11 +64,13 @@ Question: Make cereal.
     "tool": "__conversational_response", 
     "tool_input": {{{{
         "response": {{{{
-            "answer_reasoning": "I see that there is milk and a big enough bowl, but I do not know if there is cereal. Since granola is similar to cereal, maybe we can make granola instead", 
-            "positions": "[[1.54,2.14,0.0], [1.54,1.32,0.0], [0.32,3.83,0.0]]",
-            "plans": "['find milk', 'find granola', 'find a bowl']",
-            "text": "I do not know where cereal is, but you can find milk, granola, and a bowl in this house to make granola.",
-            "question": "Do you want to replace cereal with granola?"
+            "answer_reasoning": "I know I need milk, cereal, and a big enough bowl to make cereal. I see that there is milk and a big enough bowl, but I do not know if there is cereal. Since granola is similar to cereal, maybe we can make granola instead", 
+            "question": "Do you want to replace cereal with granola?",
+            "plans": "[
+                {{{{"reason": "I need milk for cereal and I know milk is usually stored at this location.", "action": "find", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
+                {{{{"reason": "user may accept granola as a replacement for cereal, and I saw granola at this location.", "action": "find", "object": "granola", "position": "[1.54,1.32,0.0]"}}}},
+                {{{{"reason": "I need a cereal bowl and I know I am likely to find bowl in kitchen area.", "action": "find", "object": "a cereal bowl", "position": "[0.32,3.83,0.0]"}}}},
+            ]"
         }}}}
     }}}}
 }}}}

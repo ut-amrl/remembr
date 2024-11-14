@@ -1,14 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
+from typing import List, Any, Dict
 import inspect
 
 @dataclass
-class PlannerOutput:
-    answer_reasoning: str
-    positions: list
-    plans: list
-    text: str
-    question: str
-    
+class Plan:
+    reason: str
+    action: str
+    object: str
+    position: List[float]
+
     @classmethod
     def from_dict(cls, dict_input):      
         return cls(**{
@@ -16,12 +16,27 @@ class PlannerOutput:
             if k in inspect.signature(cls).parameters
         })
 
+@dataclass
+class PlannerOutput:
+    answer_reasoning: str
+    question: str
+    plans: List[Plan] = field(default_factory=list)
+    
+    @classmethod
+    def from_dict(cls, dict_input):      
+        # Extract plans and convert each entry to a Plan object
+        plans = [Plan.from_dict(plan) for plan in dict_input.get("plans", [])]
+        # Filter and construct the PlannerOutput object
+        init_args = {
+            k: (plans if k == "plans" else v)
+            for k, v in dict_input.items()
+            if k in inspect.signature(cls).parameters
+        }
+        return cls(**init_args)
+
 class Planner:
     def query(self, query: str) -> PlannerOutput:
         raise NotImplementedError
-    
-    def query_positions(self, query: str) -> list:
-        return self.query(query).positions
     
     def query_plans(self, query: str) -> list:
         return self.query(query).plans
