@@ -15,8 +15,8 @@ You must use the following tool to generate the answer: (be careful about escapi
     "tool": "__conversational_response", 
     "tool_input": {{{{
         "response": {{{{
-            "is_plan_valid": "-Determine if the plan if valid. You should only respond with \"yes\", \"no\", or \"maybe\"-", 
-            "answer_reasoning": "-input your reasoning in here for the answer. You should specify which sub-plan you think is invalid or cannot be validated"
+                "is_plan_valid": "-Determine if the plan if valid. You should only respond with yes, no, or maybe-", 
+                "answer_reasoning": "-input your reasoning in here for the answer. You should specify which sub-plan you think is invalid or cannot be validated-"
         }}}}
     }}}}
 }}}}

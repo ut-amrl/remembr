@@ -10,16 +10,16 @@ def remember():
     t = 1.0
     dt = 0.1
     pos = [0.0, 0.0 ,0.0]
-    items = ["apple", 
-             "orange", 
-             "milk", 
-             "banana", 
-             "cherry", 
-             "cereal", 
+    items = ["apple in refridge", 
+             "orange in refridge", 
+             "milk in refridge", 
+             "banana on tablecounter", 
+             "cherry in refridge", 
+             "cereal in a cabinet", 
              "knife",
              "someone is drinking milk",
              "milk box in trashcan",
-             "bowl"]
+             "bowls on table"]
 
     for item in items:
         caption = f"I see {item}"

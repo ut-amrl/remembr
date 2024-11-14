@@ -361,7 +361,8 @@ class ReMEmbRPlanner(Planner):
                 ]
             )
             model = critic_prompt | self.chat
-            response = model.invoke({"detailed_plans": detailed_plans, "chat_history": messages[1:]})
+            records = [msg for msg in filter(lambda x: isinstance(x, ToolMessage) or (isinstance(x, AIMessage) and len(x.tool_calls) > 0), messages)]
+            response = model.invoke({"detailed_plans": detailed_plans, "chat_history": records})
             response = ''.join(response.content.splitlines())
             result = eval(response)
         import pdb; pdb.set_trace()
