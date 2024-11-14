@@ -66,23 +66,23 @@ class AgentState(TypedDict):
 
 
 # Define the function that determines whether to continue or not
-def should_generate(state: AgentState):
+def from_agent_to(state: AgentState):
     messages = state["messages"]
 
     last_message = messages[-1]
     # If there is no function call, then we finish
     if not last_message.tool_calls:
-        return "end"
+        return "generate"
     else:
-        return "continue"
+        return "agent_action"
     
-def should_terminate(state: AgentState):
+def from_critic_to(state: AgentState):
     messages = state["messages"]
     last_message = eval(messages[-1].content)
     if last_message["is_plan_valid"] == "yes":
         return "end"
     else:
-        return "continue"
+        return "generate"
 
 def try_except_continue(state, func):
     while True:
@@ -382,8 +382,7 @@ class ReMEmbRPlanner(Planner):
 
         # Define the nodes we will cycle between
         workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent
-        tool_node = ToolNode(self.tool_list)
-        workflow.add_node("action", tool_node)
+        workflow.add_node("agent_action", ToolNode(self.tool_list))
 
         workflow.add_node(
             "generate", lambda state: try_except_continue(state, self.generate)
@@ -392,26 +391,26 @@ class ReMEmbRPlanner(Planner):
         workflow.add_node("critic", lambda state: try_except_continue(state, self.critic))
         workflow.set_entry_point("agent")
 
-        workflow.add_edge('action', 'agent')
+        workflow.add_edge('agent_action', 'agent')
         # Decide whether to retrieve
         workflow.add_conditional_edges(
             "agent",
             # Assess agent decision
-            should_generate,
+            from_agent_to,
             {
                 # Translate the condition outputs to nodes in our graph
-                "continue": "action",
-                "end": "generate",
+                "agent_action": "agent_action",
+                "generate": "generate",
             },
         )
         workflow.add_edge("generate", "critic")
         workflow.add_conditional_edges(
             "critic",
             # Assess agent decision
-            should_terminate,
+            from_critic_to,
             {
                 # Translate the condition outputs to nodes in our graph
-                "continue": "generate",
+                "generate": "generate",
                 "end": END,
             },
         )
