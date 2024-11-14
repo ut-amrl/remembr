@@ -257,8 +257,6 @@ class ReMEmbRAgent(Agent):
 
         response = model.invoke({"question": question, "chat_history": messages[:]})
 
-        import pdb; pdb.set_trace()
-
         if response.tool_calls:
             for tool_call in response.tool_calls:
                 if tool_call['name'] != "__conversational_response":

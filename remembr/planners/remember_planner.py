@@ -66,7 +66,7 @@ class AgentState(TypedDict):
 
 
 # Define the function that determines whether to continue or not
-def should_continue(state: AgentState):
+def should_generate(state: AgentState):
     messages = state["messages"]
 
     last_message = messages[-1]
@@ -76,6 +76,13 @@ def should_continue(state: AgentState):
     else:
         return "continue"
     
+def should_terminate(state: AgentState):
+    messages = state["messages"]
+    last_message = eval(messages[-1].content)
+    if last_message["is_plan_valid"] == "yes":
+        return "end"
+    else:
+        return "continue"
 
 def try_except_continue(state, func):
     while True:
@@ -109,12 +116,13 @@ class ReMEmbRPlanner(Planner):
         self.agent_prompt = file_to_string(top_level_path+'prompts/planner/planner_system_prompt.txt')
         self.generate_prompt = file_to_string(top_level_path+'prompts/planner/generate_system_prompt.txt')
         self.agent_gen_only_prompt = file_to_string(top_level_path+'prompts/planner/planner_gen_system_prompt.txt')
+        self.critic_prompt = file_to_string(top_level_path+'prompts/planner/critic_system_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.agent_call_count = 0
+        self.critic_call_count = 0
 
         self.chat_history = ChatMessageHistory()
-
 
     def llm_selector(self, llm_type, temperature, num_ctx):
         llm = None
@@ -139,13 +147,10 @@ class ReMEmbRPlanner(Planner):
 
         return llm
 
-
     def set_memory(self, memory: Memory):
         self.memory = memory
         self.create_tools(memory)
         self.build_graph()
-
-
 
     def create_tools(self, memory):
 
@@ -203,7 +208,6 @@ class ReMEmbRPlanner(Planner):
         self.tool_definitions = [convert_to_openai_function(t) for t in self.tool_list]
 
     ### Nodes
-
     def agent(self, state):
         """
         Invokes the agent model to generate a response based on the current state. Given
@@ -264,7 +268,6 @@ class ReMEmbRPlanner(Planner):
 
         return {"messages": [response]}
 
-
     def generate(self, state):
         """
         Generate answer
@@ -278,10 +281,6 @@ class ReMEmbRPlanner(Planner):
         messages = state["messages"]
         question = messages[0].content \
                 + "\n Please responsed in the desired format."
-        last_message = messages[-1]
-
-
-        docs = last_message.content
 
         prompt = PromptTemplate(
             template=self.generate_prompt,
@@ -289,13 +288,10 @@ class ReMEmbRPlanner(Planner):
         )
         filled_prompt = prompt.invoke({'question':question})
 
-
         gen_prompt = ChatPromptTemplate.from_messages(
             [
-                # ("human", "What do you do?"),
                 ("system", filled_prompt.text),
                 MessagesPlaceholder("chat_history"),
-                # ("ai", filled_prompt.text),
                 ("human", "{question}"),
 
             ]
@@ -335,7 +331,45 @@ class ReMEmbRPlanner(Planner):
         self.agent_call_count = 0
         return {"messages": [str(parsed)]}
 
-
+    def critic(self, state):
+        result = {}
+        messages = state["messages"]
+        question = messages[0].content
+        last_message = eval(messages[-1].content)
+        
+        positions, plans = last_message["positions"], last_message["plans"]
+        if len(positions) != len(plans):
+            result["is_plan_valid"] = "no"
+            result["answer_reasoning"] = f"In this plan, the length of positions ({len(positions)}) and the length of plans ({len(plans)}) do not match."
+        elif self.critic_call_count >= 2:
+            result["is_plan_valid"] = "yes"
+            result["answer_reasoning"] = "exceeding max critic call limit"
+        else:
+            detailed_plans = [f"{plan} at {pos}" for plan, pos in zip(plans, positions)]
+            
+            prompt = PromptTemplate(
+                template=self.critic_prompt,
+                input_variables=["question", "plans"],
+            )
+            filled_prompt = prompt.invoke({'question': question, "plans": detailed_plans})
+            
+            critic_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", filled_prompt.text),
+                    MessagesPlaceholder("chat_history"),
+                    ("ai", "{detailed_plans}"),
+                ]
+            )
+            model = critic_prompt | self.chat
+            response = model.invoke({"detailed_plans": detailed_plans, "chat_history": messages[1:]})
+            response = ''.join(response.content.splitlines())
+            result = eval(response)
+        import pdb; pdb.set_trace()
+        if result["is_plan_valid"] != "no":
+            self.critic_call_count = 0
+        else:
+            self.critic_call_count += 1
+        return {"messages": [str(result)]}
 
     def build_graph(self):
 
@@ -347,38 +381,39 @@ class ReMEmbRPlanner(Planner):
 
         # Define the nodes we will cycle between
         workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent
-        # retrieve = ToolNode([self.retriever_tool])
         tool_node = ToolNode(self.tool_list)
         workflow.add_node("action", tool_node)
-        # workflow.add_node("action", lambda state: try_except_continue(state, tool_node))
-
-
-        # workflow.add_node("action", self.call_tool)
 
         workflow.add_node(
             "generate", lambda state: try_except_continue(state, self.generate)
         )  # Generating a response after we know the documents are relevant
         # Call agent node to decide to retrieve or not
-
-
+        workflow.add_node("critic", lambda state: try_except_continue(state, self.critic))
         workflow.set_entry_point("agent")
 
+        workflow.add_edge('action', 'agent')
         # Decide whether to retrieve
         workflow.add_conditional_edges(
             "agent",
             # Assess agent decision
-            should_continue,
+            should_generate,
             {
                 # Translate the condition outputs to nodes in our graph
                 "continue": "action",
                 "end": "generate",
             },
         )
-
-
-        workflow.add_edge('action', 'agent')
-
-        workflow.add_edge("generate", END)
+        workflow.add_edge("generate", "critic")
+        workflow.add_conditional_edges(
+            "critic",
+            # Assess agent decision
+            should_terminate,
+            {
+                # Translate the condition outputs to nodes in our graph
+                "continue": "generate",
+                "end": END,
+            },
+        )
 
         # Compile
         self.graph = workflow.compile()
@@ -392,7 +427,7 @@ class ReMEmbRPlanner(Planner):
         }
 
         out = self.graph.invoke(inputs)
-        response = out['messages'][-1]
+        response = out['messages'][-2]
         response = ''.join(response.content.splitlines())
 
         if '```json' not in response:

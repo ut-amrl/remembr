@@ -1,6 +1,7 @@
 from remembr.memory.memory import MemoryItem
 from remembr.memory.milvus_memory import MilvusMemory
 from remembr.planners.remember_planner import ReMEmbRPlanner
+from remembr.agents.remembr_agent import ReMEmbRAgent
 
 def remember():
     memory = MilvusMemory("test_collection", db_ip='127.0.0.1')
@@ -17,7 +18,8 @@ def remember():
              "cereal", 
              "knife",
              "someone is drinking milk",
-             "milk box in trashcan"]
+             "milk box in trashcan",
+             "bowl"]
 
     for item in items:
         caption = f"I see {item}"
@@ -36,6 +38,7 @@ def remember():
 if __name__ == "__main__":
     memory = remember()
     agent = ReMEmbRPlanner(llm_type='gpt-4o')
+    # agent = ReMEmbRAgent(llm_type='gpt-4o')
     agent.set_memory(memory)
     while True:
         user_input = input("Ask me a question (Enter 'q' to exit): ")
@@ -43,7 +46,8 @@ if __name__ == "__main__":
             print("Exiting the program.")
             exit(0)
         response = agent.query(user_input)
-        print(response.positions)
-        print(response.plans)
-        print(response.text)
-        print(response.question)
+        print(response)
+        # print(response.positions)
+        # print(response.plans)
+        # print(response.text)
+        # print(response.question)
