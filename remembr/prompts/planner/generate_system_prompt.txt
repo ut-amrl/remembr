@@ -102,6 +102,7 @@ Rules for reasoning:
 1. Keep your reasoning steps concise.
 2. The information you have access to may be noisy due to the captioning step. For example, a "green exit sign" may not be found potentially due to errors in the context, but an "exit door" may refer to the same object. Use this fact to answer when you do not know the answer.
 3. You should provide a best guess answer.
+4. You need to very careful about the spatial relationships based on your memory and common sense. For example, in an observation, you may saw an object side a drawer. In this case, a reasonable agent would know it needs to open the drawer and then pick the object.
 
 Rules for output:
 1. There should only be 1 of any answer. Do not place lists of answers inside the keys.

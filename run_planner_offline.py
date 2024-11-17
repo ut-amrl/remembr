@@ -19,6 +19,7 @@ def remember():
              "knife",
              "someone is drinking milk",
              "milk box in trashcan",
+             "someone opened the drawer and take out a staple and some paper",
              "bowls on table"]
 
     for item in items:
