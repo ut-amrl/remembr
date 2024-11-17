@@ -15,7 +15,7 @@ def remember():
              "milk in refridge", 
              "banana on tablecounter", 
              "cherry in refridge", 
-             "cereal in a cabinet", 
+             "someone opened the cabinet and there's cereal in it",
              "knife",
              "someone is drinking milk",
              "milk box in trashcan",
@@ -46,8 +46,4 @@ if __name__ == "__main__":
             print("Exiting the program.")
             exit(0)
         response = agent.query(user_input)
-        print(response)
-        # print(response.positions)
-        # print(response.plans)
-        # print(response.text)
-        # print(response.question)
+        response.print_plan(show_reasons=True)

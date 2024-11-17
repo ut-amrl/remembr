@@ -33,6 +33,13 @@ class PlannerOutput:
             if k in inspect.signature(cls).parameters
         }
         return cls(**init_args)
+    
+    def print_plan(self, show_reasons=False):
+        for plan in self.plans:
+            s = f"{plan.action} {plan.object} at {plan.position}"
+            if show_reasons:
+                s += f" because {plan.reason}"
+            print(s)
 
 class Planner:
     def query(self, query: str) -> PlannerOutput:
