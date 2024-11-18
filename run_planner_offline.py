@@ -1,43 +1,10 @@
 from remembr.memory.memory import MemoryItem
 from remembr.memory.milvus_memory import MilvusMemory
 from remembr.planners.remember_planner import ReMEmbRPlanner
-from remembr.agents.remembr_agent import ReMEmbRAgent
-
-def remember():
-    memory = MilvusMemory("test_collection", db_ip='127.0.0.1')
-    memory.reset()
-
-    t = 1.0
-    dt = 0.1
-    pos = [0.0, 0.0 ,0.0]
-    items = ["apple in refridge", 
-             "orange in refridge", 
-             "milk in refridge", 
-             "banana on tablecounter", 
-             "cherry in refridge", 
-             "someone opened the cabinet and there's cereal in it",
-             "knife",
-             "someone is drinking milk",
-             "milk box in trashcan",
-             "someone opened the drawer and take out a staple and some paper",
-             "bowls on table"]
-
-    for item in items:
-        caption = f"I see {item}"
-        pos[0] += 1.0
-        memory_item = MemoryItem(
-            caption=caption,
-            time=t,
-            position=pos,
-            theta=0
-        )
-        memory.insert(memory_item)
-        t += dt
-    return memory
-
+from remembr.memloaders.memloaders import *
 
 if __name__ == "__main__":
-    memory = remember()
+    memory = remember_demo()
     agent = ReMEmbRPlanner(llm_type='gpt-4o')
     # agent = ReMEmbRAgent(llm_type='gpt-4o')
     agent.set_memory(memory)
