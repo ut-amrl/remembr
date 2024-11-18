@@ -71,7 +71,7 @@ def run_video_in_segs(args):
     captions_location = os.path.join(args.out_path, "iphones")
     os.makedirs(captions_location, exist_ok=True)
     video_name = Path(args.data_path).stem
-    filepath = os.path.join(captions_location, f'f{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
+    filepath = os.path.join(captions_location, f'f\{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
     with open(filepath, 'w') as f:
         print(f"Writing data to {filepath}")
         json.dump(outputs, f, cls=NumpyEncoder)
@@ -80,7 +80,8 @@ def run_video_in_segs(args):
 if __name__ == "__main__":
     default_query = "<video>\n You are a wandering around a household kitchen/work area.\
         Please describe in detail what you see in the few seconds of the video. \
-        Specifically focus on the objects, environmental features, events/ectivities, people (as well as their actions), and other interesting details. Think step by step about these details and be very specific."
+        Specifically focus on the objects, environmental features, events/ectivities, people (as well as their actions), and other interesting details. Importantly, you should focus on the spatial relationships between objects, and explicitly state them. \
+        Think step by step about these details and be very specific."
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
     parser.add_argument("--model-base", type=str, default=None)
