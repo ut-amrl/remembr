@@ -11,7 +11,10 @@ def remember_cobot(inpath: str) -> MilvusMemory:
     memory.reset()
     with open(inpath, 'r') as f:
         for entry in json.load(f):
-            t, pos, caption = entry["time"], entry["base_position"] + [0.0], entry["base_caption"]
+            t, pos, caption = entry["time"], entry["base_position"], entry["base_caption"]
+            # If pos only contains (x,y), append a dummy 0.0 as the z coordinate
+            if len(pos) == 2:
+                pos += [0.0]
             memory_item = MemoryItem(
                 caption=caption,
                 time=t,
