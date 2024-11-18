@@ -169,4 +169,4 @@ if __name__ == "__main__":
 
     run_video_in_segs(args)
     
-    # python remembr/scripts/preprocess_cobot_captions.py --seconds_per_caption 3 --model-path Efficient-Large-Model/VILA1.5-13b --captioner_name VILA1.5-13b --data_path /home/tiejean/Workspace/RobotMem/data/bags --out_path /home/tiejean/Workspace/RobotMem/data/captions/ --bagname 2024-11-06-16-12-12
+    # python remembr/scripts/preprocess_cobot_captions.py --seconds_per_caption 5 --data_path /robodata/taijing/RobotMem/data/bags/ --out_path /robodata/taijing/RobotMem/data/captions/ --bagname 2024-11-06-16-12-12

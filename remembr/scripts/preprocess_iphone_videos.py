@@ -2,6 +2,7 @@ import argparse
 import re
 from io import BytesIO
 import os, os.path as osp
+from pathlib import Path
 
 import requests
 from PIL import Image
@@ -56,7 +57,7 @@ def run_video_in_segs(args):
     t = 1.5
     outputs = []
     for caption in captions:
-        entiry = {
+        entity = {
             "time": t,
             "base_position": [0.0,0.0,0.0], # dummy data
             "base_caption": caption,
@@ -64,6 +65,17 @@ def run_video_in_segs(args):
             "wrist_caption": "",
             "wrist_caption_embedding": []
         }
+        outputs.append(entity)
+    
+    os.makedirs(args.out_path, exist_ok=True)
+    captions_location = os.path.join(args.out_path, "iphones")
+    os.makedirs(captions_location, exist_ok=True)
+    video_name = Path(args.data_path).stem
+    filepath = os.path.join(captions_location, f'f{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
+    with open(filepath, 'w') as f:
+        print(f"Writing data to {filepath}")
+        json.dump(outputs, f, cls=NumpyEncoder)
+        
     
 if __name__ == "__main__":
     default_query = "<video>\n You are a wandering around a household kitchen/work area.\
@@ -73,6 +85,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument("--out_path", type=str, required=True)
     parser.add_argument("--captioner_name", type=str, default="VILA1.5-8b")
     parser.add_argument("--seconds_per_caption", type=int, default=5)
     
