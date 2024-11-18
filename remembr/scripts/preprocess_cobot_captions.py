@@ -146,7 +146,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--seconds_per_caption", type=int, default=5)
 
-    parser.add_argument("--video-file", type=str, default=None)
     parser.add_argument("--num-video-frames", type=int, default=6)
     parser.add_argument("--query", type=str, default=default_query)
     parser.add_argument("--conv-mode", type=str, default="llama_3")
@@ -169,3 +168,5 @@ if __name__ == "__main__":
         args.conv_mode = args.conv_mode
 
     run_video_in_segs(args)
+    
+    # python remembr/scripts/preprocess_cobot_captions.py --seconds_per_caption 3 --model-path Efficient-Large-Model/VILA1.5-13b --captioner_name VILA1.5-13b --data_path /home/tiejean/Workspace/RobotMem/data/bags --out_path /home/tiejean/Workspace/RobotMem/data/captions/ --bagname 2024-11-06-16-12-12
