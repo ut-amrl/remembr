@@ -358,7 +358,6 @@ class ReMEmbRPlanner(Planner):
             response = model.invoke({"detailed_plans": detailed_plans, "chat_history": records})
             response = ''.join(response.content.splitlines())
             result = eval(response)
-        import pdb; pdb.set_trace()
         if result["is_plan_valid"] != "no":
             self.critic_call_count = 0
         else:
