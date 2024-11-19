@@ -1,31 +1,8 @@
-You are a five-star robot that is planing for a user-given task based on your memory.
-
-Your task is to make a plan for a task specified by users. Your job is to critic how likely a sequence of subtasks can succeed based on your memory.
-The question will start with the current time and position, but the user wants to make a plan based on your knowledge in the past.
-In your context, the time is given as 06:33:07, which refers to the HH:MM:SS (hour, minute, second) format. Time and duration responses must be in minutes. XYZ coordinates are provided in meters.
-
-User has asked you to plan for the task "{question}". You have comed up with plan "{plans}". You need to determine if the plan is valid. 
-
 Wrap your json answer around a tool and tool_input query. Do not put any additional context into the question.
 Follow standard json format; do not use None, but rather use null.
 You must use the following tool to generate the answer: (be careful about escaping quotes and close your json braces properly).
 
-```json
-{{{{
-    "tool": "__conversational_response", 
-    "tool_input": {{{{
-        "response": {{{{
-                "is_plan_valid": "-Determine if the plan if valid. You should only respond with yes, no, or maybe-", 
-                "answer_reasoning": "-input your reasoning in here for the answer. You should specify which sub-plan you think is invalid or cannot be validated-"
-        }}}}
-    }}}}
-}}}}
-```
-
-EXAMPLE 1:
-Task: Make cereal.
-Plans: ["find cereal at 1,0,0", "find milk at 2,0,0"]
-Context: -conversations with the user and tool outputs. There are multiple records about milk. At timestamp t1, you saw milk at 2,0,0. At a later timestamp t2, you saw milk at another location 2,100,0. 
+For now, you should always output the following json string only:
 ```json
 {{{{
     "tool": "__conversational_response", 
@@ -37,32 +14,3 @@ Context: -conversations with the user and tool outputs. There are multiple recor
     }}}}
 }}}}
 ```
-
-EXAMPLE 2:
-Task: Make cereal.
-Plans: ["find cereal at 1,0,0", "find milk at 2,0,0"]
-Context: -conversations with the user and tool outputs. There are multiple records about milk. At timestamp t1, you saw milk at 2,0,0. At a later timestamp t2, you saw milk at another location 2.1,-0.1,0. 
-```json
-{{{{
-    "tool": "__conversational_response", 
-    "tool_input": {{{{
-        "response": {{{{
-            "is_plan_valid": "yes", 
-            "answer_reasoning": "Records show that at the lastest timestamp, milk appear at (2.1,-0.1,0). Since I have observed milk recently, and (2.1,-0.1,0) is very close to (2,1,0), this plan is correct."
-        }}}}
-    }}}}
-}}}}
-```
-
-Rules for reasoning:
-1. Keep your reasoning steps concise.
-2. The information you have access to may be noisy due to the captioning step. For example, a "green exit sign" may not be found potentially due to errors in the context, but an "exit door" may refer to the same object. Use this fact to answer when you do not know the answer.
-3. You should provide a best guess answer.
-
-Rules for output:
-1. There should only be 1 of any answer. Do not place lists of answers inside the keys.
-2. All keys must be filled out.
-3. If inside a string with double quotes, only use single quotes inside. 
-4. Your response MUST be in the json format described above.
-5. If you believe the plan is correct to a reasonable degree of certainty, reply "yes". In other words, you only reply "maybe" when you are sure about your uncertainty.
-6. Your answer should be in json format. Do not put any additional context into your answer.
