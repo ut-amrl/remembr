@@ -36,7 +36,10 @@ class PlannerOutput:
     
     def print_plan(self, show_reasons=False):
         for plan in self.plans:
-            s = f"{plan.action} {plan.object} at {plan.position}"
+            if plan.action == "navigate":
+                s = f"{plan.action} to {plan.position}"
+            else:
+                s = f"{plan.action} {plan.object}"
             if show_reasons:
                 s += f" because {plan.reason}"
             print(s)

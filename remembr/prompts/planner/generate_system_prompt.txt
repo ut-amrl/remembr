@@ -20,7 +20,7 @@ Your response should look like the following: (be careful about escaping quotes 
             "answer_reasoning": "-input your reasoning in here for the answer. If you do not know the answer, provide your best guess.-", 
             "question": "--a text answer here. If you think the task is ambiguous based on your memory, you can ask user questions through this field. If not, keep it as an empty string",
             "plans": "[
-                {{{{"reason": "-input your reason for this plan-", "action": "-action on object. This should always be one of 'find', 'pick', 'place_on', 'open', 'close'-", "object": "-object-", "position": "-position of the object in (x,y,z) format-"}}}},
+                {{{{"reason": "-input your reason for this plan-", "action": "-action on object. This should always be one of 'navigate', 'pick', 'place_on', 'open', 'close'-", "object": "-object-", "position": "-position of the object in (x,y,z) format-"}}}},
                 {{{{"reason": "-input your reason for this plan-", "action": "-action on object. This should always be 'find', 'pick', 'place_on', 'open', 'close'-", "object": "-object-", "position": "-position of the object in (x,y,z) format-"}}}}
             ]"
         }}}}
@@ -28,17 +28,15 @@ Your response should look like the following: (be careful about escaping quotes 
 }}}}
 ```
 
-"plans" is consisted of a list of multiple atomic steps, which will be executed in sequential order by you, a robot, to accomplish the user-specified task. You can exeucute 5 types of tasks: "find", "pick", "place_on", "open", "close". Please follow the following guidelines:
-1. "reason": summarize your reason about this step. You should reason about the following factors if they apply:
-    a. Is this step necessary for the task? For example, if your task is to "make cereal". You know "'find' cereal", "'find' milk", "'find' a bowl" are necessaryfor the task.
-    b. Is this step feasible given the past steps (states)? For example, if you have "pick" an object before, since you only have one arm, you cannot "pick" another object after you call "place_on".
-    c. Is this action feasible on the object by common sense. For example, you can "open" a cabinet, but you are unlikely to have enough strength to "pick" a cabinet.
-2. "action": action which you'll execute on the "object". You should choose one from "find", "pick", "place_on", "open", "close".
-    a. "find": You will navigate to this position. You should retrieve location based on your memory. If you are unsure, make a best guess based on your memory and common sense.
-    b. "pick": You will pick the object. In this case, the "position" information will be ignored (assuming you have called "find" object before). However, you should still provide object position based on your memory.
-    c. "place_on": You will place the item you're holding on to the "object" you specified. For example, if you specify "'pick' apple" in a previous step, "'place_on' basket" will place the apple onto the basket.
-    d. "open": You will open doors, cabinets, drawers, etc.
-    e. "close": You will close doors, cabinets, drawers, etc. Since you only have one arm, you can only close a door when your arm is free.
+"plans" is consisted of a list of multiple atomic steps, which will be executed in sequential order by you, a robot, to accomplish the user-specified task. In your context, "object" here has generic meaning - it can refer to any object, or any generic space (kitchen, a cabinet in kitchen, etc.).
+You can exeucute 5 types of commands: "navigate", "pick", "place_on", "open", and "close". At each step, you should choose from one of the aforementioned commands with parameter "object" and "position". If parameter "object" is not required, you should fill in an empty string; If parameter position is not required, you should fill in an empty list. Please follow the following guidelines VERY CAREFULLY:
+1. `navigate`: `position` is required. You can use this command to navigate to the `position` you speficied. This is the only command you can use to change your (x,y,z) position. You should state why you navigate to `position` and what you expect to see or find at `position` in detail in "reason".
+2. `open`: `object` is required. You can use this command to open doors, cabinets, drawers, or any other "openable" objects. This command is very helpful if you think you need to "open" the "object" before reaching an item. For example, if you remember a scissor lying in a drawer. You should call "open drawer" before "pick scissor".
+3. `pick`: `object` is required. There are two important rules you should follow:
+    a. You can use this command to pick up any objects you can see without changing the state of the world. Therefore, you should be very careful about reasoning the spatial relationships among objects. For example, you can pick an object from an open shelf or a tabletop. However, if the object is in a closed shelf or any close container, only after you opening the closed container can you pick up the object.
+    b. You only have one arm, and after you execute `pick` command, you cannot execute `close` or `pick` (because your only hand is occupied with an object) until you call `place_on` (i.e. freeing your arm by putting the object down). Therefore, you should be very careful about ordering of the steps in your plan.
+4. `place_on`: `object` is required. You can use this command to place whatever you are holding in your arm on to the `object` you specified. 
+5. `close`: You can use this command to close any open objects such as doors, cabinets, drawers, etc.
 
 EXAMPLE 1:
 Context: -conversations with the user and tool outputs indicating where milk and cereal are located.
@@ -52,51 +50,23 @@ Question: Make cereal.
             "answer_reasoning": "The task is to make cereal, and I know I need milk, cereal, and a bowl. Based on my memory, I have seen all items before. I can locate all items and bring them to a table so user can make cereal.", 
             "question": "",
             "plans": "[
-                {{{{"reason": "I need milk for cereal and I know milk is usually stored at this location.", "action": "find", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
-                {{{{"reason": "I can pick up the milk.", "action": "pick", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
-                {{{{"reason": "I need a table to put milk.", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I can put milk onto the table.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "Now, I need cereal for cereal and I saw cereal at this location.", "action": "find", "object": "cereal", "position": "[1.54,1.32,0.0]"}}}},
-                {{{{"reason": "I can pick up the cereal.", "action": "pick", "object": "cereal", "position": "[1.54,1.32,0.0]"}}}},
-                {{{{"reason": "I should bring the cereal to the same table where I put milk.", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I can put cereal onto the table.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I need a cereal bowl and I know I am likely to find bowl in kitchen area.", "action": "find", "object": "a cereal bowl", "position": "[0.32,3.83,0.0]"}}}},
-                {{{{"reason": "I can pick up the bowl.", "action": "find", "object": "a cereal bowl", "position": "[0.32,3.83,0.0]"}}}},
-                {{{{"reason": "I should put the bowl to the same table where I put milk and cereal.", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I should push down the bowl.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
+                {{{{"reason": "I need milk for cereal and I know milk is usually stored at this location.", "action": "navigate", "object": "", "position": "[1.54,2.14,0.0]"}}}},
+                {{{{"reason": "I can pick up the milk.", "action": "pick", "object": "milk", "position": "[]"}}}},
+                {{{{"reason": "I need a table to put milk and I remember there is a table at this position.", "action": "navigate", "object": "", "position": "[3.14,0.23,0.0]"}}}},
+                {{{{"reason": "I can put milk onto the table.", "action": "place_on", "object": "table", "position": "[]"}}}},
+                {{{{"reason": "Now, I need cereal for cereal and I saw cereal at this location.", "action": "navigate", "object": "", "position": "[1.54,1.32,0.0]"}}}},
+                {{{{"reason": "I can pick up the cereal.", "action": "pick", "object": "cereal", "position": "[]"}}}},
+                {{{{"reason": "I should bring the cereal to the same table where I put milk.", "action": "navigate", "object": "", "position": "[3.14,0.23,0.0]"}}}},
+                {{{{"reason": "I can put cereal onto the table.", "action": "place_on", "object": "table", "position": "[]"}}}},
+                {{{{"reason": "I need a cereal bowl and I know I am likely to find bowl in kitchen area.", "action": "navigate", "object": "", "position": "[0.32,3.83,0.0]"}}}},
+                {{{{"reason": "I can pick up the bowl.", "action": "pick", "object": "a cereal bowl", "position": "[]"}}}},
+                {{{{"reason": "I should put the bowl to the same table where I put milk and cereal.", "action": "navigate", "object": "", "position": "[3.14,0.23,0.0]"}}}},
+                {{{{"reason": "I should push down the bowl.", "action": "place_on", "object": "table", "position": "[]"}}}},
             ]"
         }}}}
     }}}}
 }}}}
-
-EXAMPLE 2:
-Context: -conversations with a user who wants to make cereal. The tool outputs suggest where milk, granola and bowl are located, but there is no record about cereal.
-Question: Make cereal.
-
-```json
-{{{{
-    "tool": "__conversational_response", 
-    "tool_input": {{{{
-        "response": {{{{
-            "answer_reasoning": "I know I need milk, cereal, and a big enough bowl to make cereal. I see that there is milk and a big enough bowl, but I do not know if there is cereal. Since granola is similar to cereal, maybe we can make granola instead. I can make a plan where I can locate all items and bring them to a table so user can make cereal, and ask user if we want to replace cereal with granola.", 
-            "question": "Do you want to replace cereal with granola?",
-            "plans": "[
-                {{{{"reason": "I need milk and I know milk is usually stored at this location.", "action": "find", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
-                {{{{"reason": "I can pick up the milk.", "action": "pick", "object": "milk", "position": "[1.54,2.14,0.0]"}}}},
-                {{{{"reason": "I need a table to put milk.", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I can put milk onto the table.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I need a bowl and I know I am likely to find bowl in kitchen area.", "action": "find", "object": "a bowl", "position": "[0.32,3.83,0.0]"}}}},
-                {{{{"reason": "I can pick up the bowl.", "action": "find", "object": "a bowl", "position": "[0.32,3.83,0.0]"}}}},
-                {{{{"reason": "I should put the bowl to the same table where I put milk .", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I should push down the bowl.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I have seen granola at this location.", "action": "find", "object": "granola", "position": "[1.54,1.32,0.0]"}}}},
-                {{{{"reason": "I can pick up the granola.", "action": "pick", "object": "granola", "position": "[1.54,1.32,0.0]"}}}},
-                {{{{"reason": "I should bring the granola to the same table where I put milk and the bowl.", "action": "find", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-                {{{{"reason": "I can put granola onto the table.", "action": "place_on", "object": "table", "position": "[3.14,0.23,0.0]"}}}},
-            ]"
-        }}}}
-    }}}}
-}}}}
+```
 
 Rules for reasoning:
 1. Keep your reasoning steps concise.
