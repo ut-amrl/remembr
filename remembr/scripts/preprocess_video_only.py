@@ -33,6 +33,9 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
     
 def run_video_in_segs(args):
+    video_name = Path(args.data_path).stem
+    task_name = f"{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs"
+    
     args.device_map = 'auto'
     vila_model = VILACaptioner(args)
     
@@ -40,8 +43,14 @@ def run_video_in_segs(args):
     if not cap.isOpened():
         raise ValueError(f"Cannot open video file: {args.data_path}")
     
-    images, captions = [], []
-    for _ in range(1000000):
+    if args.image_path is not None:
+        os.makedirs(args.image_path, exist_ok=True)
+        images_location = os.path.join(args.image_path, f"{task_name}")
+        os.makedirs(images_location, exist_ok=True)
+    
+    img_id = 0
+    images, captions, frames = [], [], []
+    for _ in range(10000000):
         ret, frame = cap.read()
         if not ret:
             break
@@ -50,28 +59,38 @@ def run_video_in_segs(args):
             images = images[::30//args.num_video_frames]
             out_text = vila_model.caption(images)
             captions.append(out_text)
+            start_frame_id = img_id
+            for image in images:
+                if args.image_path is not None:
+                    imgpath = os.path.join(images_location, f"{img_id:06d}.png")
+                    opencv_image = np.array(image)
+                    opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(imgpath, opencv_image)
+                img_id += 1
+            end_frame_id = img_id - 1
+            frames.append((start_frame_id, end_frame_id))
             images = [pil_image]
         else:
             images.append(pil_image)
             
     t = 1.5
     outputs = []
-    for caption in captions:
+    for caption, (start_frame, end_frame) in zip(captions, frames):
         entity = {
             "time": t,
             "base_position": [0.0,0.0,0.0], # dummy data
             "base_caption": caption,
             "base_caption_embedding": [],
             "wrist_caption": "",
-            "wrist_caption_embedding": []
+            "wrist_caption_embedding": [],
+            "start_frame": start_frame, 
+            "end_frame": end_frame,
         }
         outputs.append(entity)
     
-    os.makedirs(args.out_path, exist_ok=True)
-    captions_location = os.path.join(args.out_path, "iphones")
+    captions_location = args.out_path
     os.makedirs(captions_location, exist_ok=True)
-    video_name = Path(args.data_path).stem
-    filepath = os.path.join(captions_location, f'f\{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
+    filepath = os.path.join(captions_location, f'{task_name}.json')
     with open(filepath, 'w') as f:
         print(f"Writing data to {filepath}")
         json.dump(outputs, f, cls=NumpyEncoder)
@@ -80,17 +99,19 @@ def run_video_in_segs(args):
 if __name__ == "__main__":
     default_query = "<video>\n You are a wandering around a household kitchen/work area.\
         Please describe in detail what you see in the few seconds of the video. \
-        Specifically focus on the objects, environmental features, events/ectivities, people (as well as their actions), and other interesting details. Importantly, you should focus on the spatial relationships between objects, and explicitly state them. \
+        Specifically focus on the objects, events/ectivities, people and their actions, as well as other interesting details. \
+        importantly, you should pay attention to event and action seqeunces in details \
         Think step by step about these details and be very specific."
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--out_path", type=str, required=True)
+    parser.add_argument("--image_path", type=str, default=None, help="Save images to the path if specified.")
     parser.add_argument("--captioner_name", type=str, default="VILA1.5-8b")
-    parser.add_argument("--seconds_per_caption", type=int, default=5)
+    parser.add_argument("--seconds_per_caption", type=int, default=3)
     
-    parser.add_argument("--num-video-frames", type=int, default=6)
+    parser.add_argument("--num-video-frames", type=int, default=5)
     parser.add_argument("--query", type=str, default=default_query)
     parser.add_argument("--conv-mode", type=str, default="llama_3")
     parser.add_argument("--sep", type=str, default=",")
