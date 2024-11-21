@@ -59,11 +59,34 @@ def parse_json(string):
     parsed = re.search(r"```json(.*?)```", string, re.DOTALL| re.IGNORECASE).group(1).strip()
     return eval(parsed)
 
+def replace_messages(current: Sequence, new: Sequence):
+    """Custom update strategy to replace the previous value with the new one."""
+    return new
+
 class AgentState(TypedDict):
     # The add_messages function defines how an update should be processed
     # Default is to replace. add_messages says "append"
     messages: Annotated[Sequence[BaseMessage], add_messages]
+    records: Annotated[Sequence, replace_messages]
+    toolcalls: Annotated[Sequence, replace_messages]
 
+def filter_retrieved_record(messages: list):
+    # record_messages = []
+    # seen_records = set() # remove duplicate
+    # for msg in filter(lambda x: isinstance(x, ToolMessage), messages):
+    #     if msg.content not in seen_records:
+    #         record_messages.append(msg)
+    #         seen_records.add(msg.content)
+    # import pdb; pdb.set_trace()
+    # record_messages = sorted(record_messages, key=lambda x: x.content) 
+    # return record_messages
+
+    records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
+    return sorted(list(set(records)))
+
+def filter_toolcalls(messages: list):
+    toolcalls = [msg for msg in filter(lambda x: isinstance(x, AIMessage) and len(x.tool_calls) > 0, messages)]
+    return toolcalls
 
 # Define the function that determines whether to continue or not
 def from_agent_to(state: AgentState):
@@ -144,10 +167,6 @@ class ReMEmbRPlanner(Planner):
         self.build_graph()
 
     def create_tools(self, memory):
-
-        template = "At time={{time}} seconds, the robot was at an average position of {{position}} with an average orientation of {{theta}} radians. "
-        template += "The robot saw the following: {{page_content}}"
-
 
         class TextRetrieverInput(BaseModel):
             x: str = Field(description="The query that will be searched by the vector similarity-based retriever.\
@@ -289,9 +308,10 @@ class ReMEmbRPlanner(Planner):
         )
 
         model = gen_prompt | self.chat
-        
-        response = model.invoke({"question": question, "chat_history": messages[1:]})
-        
+        retrieved_record = filter_retrieved_record(messages=messages)
+        # response = model.invoke({"question": question, "chat_history": messages[1:]})
+        response = model.invoke({"question": question, "chat_history": retrieved_record})
+
         # let us parse and check the output is a dictionary. raise error otherwise
         response = ''.join(response.content.splitlines())
         
