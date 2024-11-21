@@ -6,8 +6,54 @@ sys.path.append(os.getcwd())
 from remembr.memory.memory import MemoryItem
 from remembr.memory.milvus_memory import MilvusMemory
 
+MAIN_MEM = "main_memory"
+
+def remember_caption_once(inpath: str) -> MilvusMemory:
+    default_query = "<video>\n You are witnessing an event from a human perspective in a household area. The human is likely doing household chores.\
+        Please describe in detail what you see in the video. \
+        Specifically focus on the objects and human activities (e.g. their interactions with objects, their hand movements, etc.) \
+        importantly, you should pay attention to event and action seqeunces in details \
+        Think step by step about these details and be very specific."
+    
+    import cv2
+    from PIL import Image
+    from remembr.captioners.vila_captioner import VILACaptioner
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
+    parser.add_argument("--model-base", type=str, default=None)
+    parser.add_argument("--captioner_name", type=str, default="VILA1.5-8b")
+    parser.add_argument("--seconds_per_caption", type=int, default=3)
+    parser.add_argument("--num-video-frames", type=int, default=5)
+    parser.add_argument("--query", type=str, default=default_query)
+    parser.add_argument("--conv-mode", type=str, default="llama_3")
+    parser.add_argument("--sep", type=str, default=",")
+    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--top_p", type=float, default=None)
+    parser.add_argument("--num_beams", type=int, default=1)
+    parser.add_argument("--max_new_tokens", type=int, default=512)
+    args = parser.parse_args()
+    
+    args.device_map = 'auto'
+    vila_model = VILACaptioner(args)
+    
+    cap = cv2.VideoCapture(inpath)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video file: {inpath}")
+    images = []
+    for _ in range(10000000):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        images.append(pil_image)
+    images = images[::60]
+    out_text = vila_model.caption(images)
+    print(out_text)
+    
+
 def remember_cobot(inpath: str) -> MilvusMemory:
-    memory = MilvusMemory("main_memory", db_ip='127.0.0.1')
+    memory = MilvusMemory(MAIN_MEM, db_ip='127.0.0.1')
     memory.reset()
     with open(inpath, 'r') as f:
         for entry in json.load(f):
@@ -25,7 +71,7 @@ def remember_cobot(inpath: str) -> MilvusMemory:
     return memory
 
 def remember_demo(observations: List[str] = [], positions: list = None)-> MilvusMemory:
-    memory = MilvusMemory("main_memory", db_ip='127.0.0.1')
+    memory = MilvusMemory(MAIN_MEM, db_ip='127.0.0.1')
     memory.reset()
     
     if len(observations) == 0:
