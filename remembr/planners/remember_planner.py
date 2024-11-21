@@ -76,14 +76,6 @@ def from_agent_to(state: AgentState):
     else:
         return "agent_action"
     
-def from_critic_to(state: AgentState):
-    messages = state["messages"]
-    last_message = eval(messages[-1].content)
-    if last_message["is_plan_valid"] == "yes":
-        return "end"
-    else:
-        return "generate"
-
 def try_except_continue(state, func):
     while True:
         try:
@@ -120,7 +112,6 @@ class ReMEmbRPlanner(Planner):
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.agent_call_count = 0
-        self.critic_call_count = 0
 
         self.chat_history = ChatMessageHistory()
 
@@ -328,42 +319,6 @@ class ReMEmbRPlanner(Planner):
         self.agent_call_count = 0
         return {"messages": [str(parsed)]}
 
-    def critic(self, state):
-        result = {}
-        messages = state["messages"]
-        question = messages[0].content
-        last_message = eval(messages[-1].content)
-
-        if self.critic_call_count >= 2:
-            result["is_plan_valid"] = "yes"
-            result["answer_reasoning"] = "exceeding max critic call limit"
-        else:
-            detailed_plans = [f"{plan['action']} {plan['object']} at {plan['position']} because {plan['reason']}" for plan in last_message["plans"]]
-        
-            prompt = PromptTemplate(
-                template=self.critic_prompt,
-                input_variables=["question", "plans"],
-            )
-            filled_prompt = prompt.invoke({'question': question, "plans": detailed_plans})
-            
-            critic_prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", filled_prompt.text),
-                    MessagesPlaceholder("chat_history"),
-                    ("ai", "{detailed_plans}"),
-                ]
-            )
-            model = critic_prompt | self.chat
-            records = [msg for msg in filter(lambda x: isinstance(x, ToolMessage) or (isinstance(x, AIMessage) and len(x.tool_calls) > 0), messages)]
-            response = model.invoke({"detailed_plans": detailed_plans, "chat_history": records})
-            response = ''.join(response.content.splitlines())
-            result = eval(response)
-        if result["is_plan_valid"] != "no":
-            self.critic_call_count = 0
-        else:
-            self.critic_call_count += 1
-        return {"messages": [str(result)]}
-
     def build_graph(self):
 
         from langgraph.graph import END, StateGraph
@@ -380,7 +335,6 @@ class ReMEmbRPlanner(Planner):
             "generate", lambda state: try_except_continue(state, self.generate)
         )  # Generating a response after we know the documents are relevant
         # Call agent node to decide to retrieve or not
-        workflow.add_node("critic", lambda state: try_except_continue(state, self.critic))
         workflow.set_entry_point("agent")
 
         workflow.add_edge('agent_action', 'agent')
@@ -395,17 +349,7 @@ class ReMEmbRPlanner(Planner):
                 "generate": "generate",
             },
         )
-        workflow.add_edge("generate", "critic")
-        workflow.add_conditional_edges(
-            "critic",
-            # Assess agent decision
-            from_critic_to,
-            {
-                # Translate the condition outputs to nodes in our graph
-                "generate": "generate",
-                "end": END,
-            },
-        )
+        workflow.add_edge("generate", END)
 
         # Compile
         self.graph = workflow.compile()
@@ -419,7 +363,7 @@ class ReMEmbRPlanner(Planner):
         }
 
         out = self.graph.invoke(inputs)
-        response = out['messages'][-2]
+        response = out['messages'][-1]
         response = ''.join(response.content.splitlines())
 
         if '```json' not in response:
