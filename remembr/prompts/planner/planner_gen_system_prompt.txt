@@ -16,10 +16,11 @@ You must use the following tool to generate the answer:
 EXAMPLE1:
 Here is an example for the task "make cereal"
 Context: contains information about milk, cereal, and a big enough bowl.
-
+```json
 [{{
     "context_reasoning": "The goal is to make cereal. The retrieved context contains information about milk, cereal, and a bowl.", 
     "tool_reasoning": "Since I know people can use milk, cereal and bowl to make cereal, I will summarize this information as a __conversational_response, 
     "tool": "__conversational_response", 
     "tool_input": {{"response": "From my memories, I have seen milk at (x,y,z) at <time>, cereal at (x,y,z) at <time>, and a bowl at (x,y,z) at <time>."}}
 }}]
+```
