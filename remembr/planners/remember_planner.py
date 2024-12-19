@@ -71,16 +71,6 @@ class AgentState(TypedDict):
     toolcalls: Annotated[Sequence, replace_messages]
 
 def filter_retrieved_record(messages: list):
-    # record_messages = []
-    # seen_records = set() # remove duplicate
-    # for msg in filter(lambda x: isinstance(x, ToolMessage), messages):
-    #     if msg.content not in seen_records:
-    #         record_messages.append(msg)
-    #         seen_records.add(msg.content)
-    # import pdb; pdb.set_trace()
-    # record_messages = sorted(record_messages, key=lambda x: x.content) 
-    # return record_messages
-
     records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
     return sorted(list(set(records)))
 
@@ -114,6 +104,8 @@ def try_except_continue(state, func):
 class ReMEmbRPlanner(Planner):
 
     def __init__(self, llm_type='gpt-4o', num_ctx=8192, temperature=0):
+        # TODO read in from some config file
+        self.config_max_agent_call_cnt = 3
 
         # Wrapper that handles everything
         llm = self.llm_selector(llm_type, temperature, num_ctx)
@@ -234,8 +226,8 @@ class ReMEmbRPlanner(Planner):
         model = self.chat
 
 
-        # limit to 5 tool calls.
-        if self.agent_call_count < 3:
+        # limit tool calls.
+        if self.agent_call_count < self.config_max_agent_call_cnt:
             model = model.bind_tools(tools=self.tool_definitions)
             prompt = self.agent_prompt
         else:
