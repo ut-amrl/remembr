@@ -380,6 +380,8 @@ class FunctionsWrapper(BaseChatModel, BaseLanguageModel):
                         response = tool['tool_input']
                     elif type(tool['tool_input']) == dict and "response" in tool["tool_input"]:
                         response = tool["tool_input"]["response"]
+                    elif type(tool['tool_input']) == dict: # NOTE need to double-check on this condition
+                        response = tool["tool_input"]
                     else:
                         raise ValueError(
                             f"Failed to parse a response from output: "
