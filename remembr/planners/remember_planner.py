@@ -78,6 +78,14 @@ def filter_toolcalls(messages: list):
     toolcalls = [msg for msg in filter(lambda x: isinstance(x, AIMessage) and len(x.tool_calls) > 0, messages)]
     return toolcalls
 
+def from_objects_to(state: AgentState):
+    messages = state["messages"]
+    last_message = messages[-1]
+    if not last_message.tool_calls:
+        return "end" #TODO fix me
+    else:
+        return "objects_action"
+
 # Define the function that determines whether to continue or not
 def from_agent_to(state: AgentState):
     messages = state["messages"]
@@ -121,6 +129,8 @@ class ReMEmbRPlanner(Planner):
         self.embeddings = HuggingFaceEmbeddings(model_name='mixedbread-ai/mxbai-embed-large-v1')
 
         top_level_path = str(os.path.dirname(__file__)) + '/../'
+        self.objects_prompt = file_to_string(top_level_path+'prompts/planner/planner_objects_prompt.txt')
+        self.objects_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_objects_terminate_prompt.txt')
         self.agent_prompt = file_to_string(top_level_path+'prompts/planner/planner_system_prompt.txt')
         self.generate_prompt = file_to_string(top_level_path+'prompts/planner/generate_system_prompt.txt')
         self.agent_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_agent_terminate_prompt.txt')
@@ -216,8 +226,37 @@ class ReMEmbRPlanner(Planner):
         model = self.chat
         if self.objects_call_count < self.config_max_objects_call_cnt:
             model = model.bind_tools(tools=self.tool_definitions)
+            prompt = self.objects_prompt
         else:
-            pass
+            prompt = self.objects_terminate_prompt
+            self.objects_call_count = 0
+        
+        objects_prompt = ChatPromptTemplate.from_messages(
+            [
+                # ("system", prompt),
+                MessagesPlaceholder("chat_history"),
+                (("human"), self.previous_tool_requests),
+                ("ai", prompt),
+                ("human", "{question}"),
+            ]
+        )
+        model = objects_prompt | model
+        question = f"User-specified request: {messages[0]}"
+        # Convert all ToolMessages into AI Messages since Ollama cann't handle ToolMessage
+        if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
+            for i in range(len(messages)):
+                if type(messages[i]) == ToolMessage:
+                    messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
+        response = model.invoke({"question": question, "chat_history": messages[:]})
+        
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                if tool_call['name'] != "__conversational_response":
+                    args = re.sub("\{.*?\}", "", str(tool_call['args'])) # remove curly braces
+                    self.previous_tool_requests += f"I previously used the {tool_call['name']} tool with the arguments: {args}.\n"
+
+        self.objects_call_count += 1
+        return {"messages": [response]}
 
     ### Nodes
     def agent(self, state):
@@ -348,30 +387,43 @@ class ReMEmbRPlanner(Planner):
 
         # Define a new graph
         workflow = StateGraph(AgentState)
-
-        # Define the nodes we will cycle between
-        workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent
-        workflow.add_node("agent_action", ToolNode(self.tool_list))
-
-        workflow.add_node(
-            "generate", lambda state: try_except_continue(state, self.generate)
-        )  # Generating a response after we know the documents are relevant
-        # Call agent node to decide to retrieve or not
-        workflow.set_entry_point("agent")
-
-        workflow.add_edge('agent_action', 'agent')
-        # Decide whether to retrieve
+        
+        # Testing
+        workflow.add_node("objects", lambda state: try_except_continue(state, self.objects))
+        workflow.add_node("objects_action", ToolNode(self.tool_list))
+        workflow.add_edge('objects_action', 'objects')
         workflow.add_conditional_edges(
-            "agent",
-            # Assess agent decision
-            from_agent_to,
+            "objects",
+            from_objects_to,
             {
-                # Translate the condition outputs to nodes in our graph
-                "agent_action": "agent_action",
-                "generate": "generate",
+                "objects_action": "objects_action",
+                "generate": END,
             },
         )
-        workflow.add_edge("generate", END)
+        workflow.set_entry_point("objects")
+        # # Define the nodes we will cycle between
+        # workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent
+        # workflow.add_node("agent_action", ToolNode(self.tool_list))
+
+        # workflow.add_node(
+        #     "generate", lambda state: try_except_continue(state, self.generate)
+        # )  # Generating a response after we know the documents are relevant
+        # # Call agent node to decide to retrieve or not
+        # workflow.set_entry_point("agent")
+
+        # workflow.add_edge('agent_action', 'agent')
+        # # Decide whether to retrieve
+        # workflow.add_conditional_edges(
+        #     "agent",
+        #     # Assess agent decision
+        #     from_agent_to,
+        #     {
+        #         # Translate the condition outputs to nodes in our graph
+        #         "agent_action": "agent_action",
+        #         "generate": "generate",
+        #     },
+        # )
+        # workflow.add_edge("generate", END)
 
         # Compile
         self.graph = workflow.compile()
