@@ -105,6 +105,7 @@ class ReMEmbRPlanner(Planner):
 
     def __init__(self, llm_type='gpt-4o', num_ctx=8192, temperature=0):
         # TODO read in from some config file
+        self.config_max_objects_call_cnt = 3
         self.config_max_agent_call_cnt = 3
 
         # Wrapper that handles everything
@@ -122,10 +123,11 @@ class ReMEmbRPlanner(Planner):
         top_level_path = str(os.path.dirname(__file__)) + '/../'
         self.agent_prompt = file_to_string(top_level_path+'prompts/planner/planner_system_prompt.txt')
         self.generate_prompt = file_to_string(top_level_path+'prompts/planner/generate_system_prompt.txt')
-        self.agent_gen_only_prompt = file_to_string(top_level_path+'prompts/planner/planner_gen_system_prompt.txt')
+        self.agent_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_agent_terminate_prompt.txt')
         self.critic_prompt = file_to_string(top_level_path+'prompts/planner/critic_system_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
+        self.objects_call_count = 0
         self.agent_call_count = 0
 
         self.chat_history = ChatMessageHistory()
@@ -209,6 +211,14 @@ class ReMEmbRPlanner(Planner):
         self.tool_list = [self.retriever_tool, self.position_retriever_tool, self.time_retriever_tool]
         self.tool_definitions = [convert_to_openai_function(t) for t in self.tool_list]
 
+    def objects(self, state):
+        messages = state["messages"]
+        model = self.chat
+        if self.objects_call_count < self.config_max_objects_call_cnt:
+            model = model.bind_tools(tools=self.tool_definitions)
+        else:
+            pass
+
     ### Nodes
     def agent(self, state):
         """
@@ -231,7 +241,7 @@ class ReMEmbRPlanner(Planner):
             model = model.bind_tools(tools=self.tool_definitions)
             prompt = self.agent_prompt
         else:
-            prompt = self.agent_gen_only_prompt
+            prompt = self.agent_terminate_prompt
 
 
         agent_prompt = ChatPromptTemplate.from_messages(
