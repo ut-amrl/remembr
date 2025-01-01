@@ -26,13 +26,17 @@ Format:
 {{{{
     "tool": "__conversational_response", 
     "tool_input": {{{{
-        "object": "--repeat specified object here--",
-        "plans": "[
-            {{{{"plan":"--brief description of the plan--", "position": "--where you should go to to retrieve this object in (x,y,z) format--", "desc":"--a detailed, precise description on what you should do to retrieve the object at this location--"}}}}
-        ]"
+        "response": {{{{
+            "object": "-repeat specified object here.-", 
+            "plans": "[
+                {{{{"plan":"-brief description of the plan--", "position": "--where you should go to to retrieve this object in (x,y,z) format-", "desc":"-a detailed, precise description on what you should do to retrieve the object at this location-"}}}},
+                {{{{"plan":"-brief description of the plan--", "position": "--where you should go to to retrieve this object in (x,y,z) format-", "desc":"-a detailed, precise description on what you should do to retrieve the object at this location-"}}}}
+            ]"
+        }}}}
     }}}}
 }}}}
 ```
+
 
 Example:
 Context: You are asked about "mug". And in your context, you want to fill in some drinks into the mug. You remember you've seen someone taking out a mug from a cabinet with location (1,0,0), and then put it on a table in the kitchen at (2,0,0). From another time, you also saw mugs in kitchen sink at (3,0,0).
@@ -40,11 +44,13 @@ Context: You are asked about "mug". And in your context, you want to fill in som
 {{{{
     "tool": "__conversational_response", 
     "tool_input": {{{{
-        "object": "mug",
-        "plans": "[
-            {{{{"plan":"find a mug in a white cabinet", "position": "[1,0,0]", "desc":"I should navigate to [1,0,0] and look for a white cabinet. After I find it, I can open the cabinet and looks for a mug. Then, I can pick up a mug if I find one there."}}}},
-            {{{{"plan":"find a mug on the table", "position": [2,0,0], "desc":"I should navgiate to [2,0,0] to look for a mug the a table nearby. If I find one, I can pick the mug up."}}}}
-        ]"
+        "response": {{{{
+            "object": "mug", 
+            "plans": "[
+                {{{{"plan":"find a mug in a white cabinet", "position": "[1,0,0]", "desc":"I should navigate to [1,0,0] and look for a white cabinet. After I find it, I can open the cabinet and looks for a mug. Then, I can pick up a mug if I find one there."}}}},
+                {{{{"plan":"find a mug on the table", "position": [2,0,0], "desc":"I should navgiate to [2,0,0] to look for a mug the a table nearby. If I find one, I can pick the mug up."}}}}
+            ]"
+        }}}}
     }}}}
 }}}}
 ```

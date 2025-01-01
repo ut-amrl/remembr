@@ -59,7 +59,7 @@ def parse_json(string):
     parsed = re.search(r"```json(.*?)```", string, re.DOTALL| re.IGNORECASE).group(1).strip()
     return eval(parsed)
 
-def parse_response(response: str, special_keys: list = [], debug = None):
+def parse_response(response: str, special_keys: list = [], messages = None):
     # let us parse and check the output is a dictionary. raise error otherwise
     response = ''.join(response.content.splitlines())
     
@@ -77,8 +77,6 @@ def parse_response(response: str, special_keys: list = [], debug = None):
                 parsed[key] = eval(parsed[key])
 
     except:
-        import pdb; pdb.set_trace()
-        print(debug)
         raise ValueError("Generate call failed. Retrying...")
     return parsed
 
@@ -148,7 +146,7 @@ class ReMEmbRPlanner(Planner):
     def __init__(self, llm_type='gpt-4o', num_ctx=8192, temperature=0):
         # TODO read in from some config file
         self.config_max_objects_call_cnt = 3
-        self.config_max_object_plans_call_cnt = 3
+        self.config_max_object_plans_call_cnt = 1
         self.config_max_agent_call_cnt = 3
 
         # Wrapper that handles everything
@@ -301,12 +299,10 @@ class ReMEmbRPlanner(Planner):
         messages = state["messages"]
         object_plans = state["object_level_plans"]
         context = state["context"]
-        if messages[-1].content:
-            last_response = parse_response(messages[-1], debug = messages)
-            if "objects" in last_response.keys() and "answer_reasoning" in last_response.keys():
-                last_response = parse_response(messages[-1], special_keys=["objects"])
-                object_plans = {obj:{"has_planned":False, "plans":[]} for obj in last_response["objects"]}
-                context = last_response["answer_reasoning"]
+        if messages[-1].content and "objects" in messages[-1].content and "answer_reasoning" in messages[-1].content:
+            last_response = parse_response(messages[-1], special_keys=["objects"])
+            object_plans = {obj:{"has_planned":False, "plans":[]} for obj in last_response["objects"]}
+            context = last_response["answer_reasoning"]
             
         object = None
         for k,v in object_plans.items():
@@ -347,6 +343,8 @@ class ReMEmbRPlanner(Planner):
             parsed_response = parse_response(response, special_keys=["plans"])
             object_plans[object]["plans"] = parsed_response["plans"]
             object_plans[object]["has_planned"] = True
+            
+        self.object_plans_call_count += 1
             
         import copy
         return {"messages": [response], "context": context, "object_level_plans": copy.deepcopy(object_plans)}
@@ -540,8 +538,8 @@ class ReMEmbRPlanner(Planner):
                                 (("user", question)),
             ]
         }
-
         out = self.graph.invoke(inputs)
+        # out = self.graph.invoke(inputs, config={"recursion_limit": 50})
         response = out['messages'][-1]
         response = ''.join(response.content.splitlines())
 
