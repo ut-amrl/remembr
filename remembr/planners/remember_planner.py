@@ -23,7 +23,7 @@ from langchain_core.utils.function_calling import convert_to_openai_function
 from langchain.tools import StructuredTool
 from langchain_core.pydantic_v1 import BaseModel, Field
 
-
+import json
 import sys, os
 sys.path.append(os.getcwd())
 
@@ -115,7 +115,7 @@ def from_object_plans_to(state: AgentState):
         if not v["has_planned"]:
             return "object_plans_action"
         else:
-            return "order_plans" 
+            return "score_plans" 
 
 # Define the function that determines whether to continue or not
 def from_agent_to(state: AgentState):
@@ -165,6 +165,7 @@ class ReMEmbRPlanner(Planner):
         self.objects_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_objects_terminate_prompt.txt')
         self.object_plans_prompt = file_to_string(top_level_path+'prompts/planner/planner_object_plans_prompt.txt')
         self.object_plans_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_object_plans_terminate_prompt.txt')
+        self.score_plans_prompt = file_to_string(top_level_path+'prompts/planner/score_plans_prompt.txt')
         self.order_plans_prompt = file_to_string(top_level_path+'prompts/planner/order_plans_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
@@ -344,6 +345,29 @@ class ReMEmbRPlanner(Planner):
             
         import copy
         return {"messages": [response], "context": context, "object_level_plans": copy.deepcopy(object_plans)}
+    
+    def score(self, state):
+        messages = state["messages"]
+        object_plans = state["object_level_plans"]
+        context = state["context"]
+        model = self.chat
+        prompt = self.score_plans_prompt
+        score_plans_prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder("chat_history"),
+                ("ai", prompt),
+                ("human", "{info}"),
+            ]
+        )
+        model = score_plans_prompt | model
+        plans = {k:v["plans"] for k,v in object_plans.items()}
+        plans = json.dumps(plans)
+        info = f"Context: {context}\nAll possible steps:\n{plans}"
+        retrieved_records = filter_retrieved_record(messages=messages)
+        response = model.invoke({"info": info, "chat_history": retrieved_records})
+        response = parse_response(response)
+        import copy
+        return {"object_level_plans": copy.deepcopy(response)}
 
     def order(self, state):
         object_plans = state["object_level_plans"]
@@ -357,8 +381,9 @@ class ReMEmbRPlanner(Planner):
             ]
         )
         model = order_plans_prompt | model
-        plans = {k:v["plans"] for k,v in object_plans.items()}
-        import json; plans = json.dumps(plans)
+        # plans = {k:v["plans"] for k,v in object_plans.items()}
+        # plans = json.dumps(plans)
+        plans = object_plans
         info = f"Context: {context}\nAll possible steps:\n{plans}"
         response = model.invoke({"info": info})
         response = ''.join(response.content.splitlines())
@@ -520,6 +545,7 @@ class ReMEmbRPlanner(Planner):
         workflow.add_node("objects_action", ToolNode(self.tool_list))
         workflow.add_node("object_plans", lambda state: try_except_continue(state, self.object_plans))
         workflow.add_node("object_plans_action", ToolNode(self.tool_list))
+        workflow.add_node("score_plans", lambda state: try_except_continue(state, self.score))
         workflow.add_node("order_plans", lambda state: try_except_continue(state, self.order))
         
         workflow.add_edge('objects_action', 'objects')
@@ -537,34 +563,12 @@ class ReMEmbRPlanner(Planner):
             from_object_plans_to,
             {
                 "object_plans_action": "object_plans_action",
-                "order_plans": "order_plans",
+                "score_plans": "score_plans",
             }
         )
+        workflow.add_edge("score_plans", "order_plans")
         workflow.add_edge("order_plans", END)
         workflow.set_entry_point("objects")
-        # # Define the nodes we will cycle between
-        # workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent
-        # workflow.add_node("agent_action", ToolNode(self.tool_list))
-
-        # workflow.add_node(
-        #     "generate", lambda state: try_except_continue(state, self.generate)
-        # )  # Generating a response after we know the documents are relevant
-        # # Call agent node to decide to retrieve or not
-        # workflow.set_entry_point("agent")
-
-        # workflow.add_edge('agent_action', 'agent')
-        # # Decide whether to retrieve
-        # workflow.add_conditional_edges(
-        #     "agent",
-        #     # Assess agent decision
-        #     from_agent_to,
-        #     {
-        #         # Translate the condition outputs to nodes in our graph
-        #         "agent_action": "agent_action",
-        #         "generate": "generate",
-        #     },
-        # )
-        # workflow.add_edge("generate", END)
 
         # Compile
         self.graph = workflow.compile()
