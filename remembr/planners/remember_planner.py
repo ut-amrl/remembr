@@ -405,7 +405,19 @@ class ReMEmbRPlanner(Planner):
         print()
         for p in parsed["plans"]:
             print(f"{p['plan']} at {p['position']}: {p['desc']}")
-        import pdb; pdb.set_trace()
+        print()
+        for obj, ps in state["object_level_plans"].items():
+            print(f"{obj}:")
+            if type(ps) == str:
+                try:
+                    ps = eval(ps)
+                except:
+                    import pdb; pdb.set_trace()
+                    raise ValueError("Generate call failed.")
+            for p in ps:
+                score, plan, reason = p["score"], p["plan"], p["scoring_reason"]
+                print(f"{score} - {plan} because {reason}")
+            print()
         return {"messages": [str(parsed)]}
 
     ### Nodes
