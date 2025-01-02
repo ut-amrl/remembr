@@ -115,8 +115,7 @@ def from_object_plans_to(state: AgentState):
         if not v["has_planned"]:
             return "object_plans_action"
         else:
-            import pdb; pdb.set_trace()
-            return "end" # TODO
+            return "order_plans" 
 
 # Define the function that determines whether to continue or not
 def from_agent_to(state: AgentState):
@@ -166,10 +165,7 @@ class ReMEmbRPlanner(Planner):
         self.objects_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_objects_terminate_prompt.txt')
         self.object_plans_prompt = file_to_string(top_level_path+'prompts/planner/planner_object_plans_prompt.txt')
         self.object_plans_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_object_plans_terminate_prompt.txt')
-        self.agent_prompt = file_to_string(top_level_path+'prompts/planner/planner_system_prompt.txt')
-        self.generate_prompt = file_to_string(top_level_path+'prompts/planner/generate_system_prompt.txt')
-        self.agent_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_agent_terminate_prompt.txt')
-        self.critic_prompt = file_to_string(top_level_path+'prompts/planner/critic_system_prompt.txt')
+        self.order_plans_prompt = file_to_string(top_level_path+'prompts/planner/order_plans_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.objects_call_count = 0
@@ -349,6 +345,46 @@ class ReMEmbRPlanner(Planner):
         import copy
         return {"messages": [response], "context": context, "object_level_plans": copy.deepcopy(object_plans)}
 
+    def order(self, state):
+        object_plans = state["object_level_plans"]
+        context = state["context"]
+        model = self.chat
+        prompt = self.order_plans_prompt
+        order_plans_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("ai", prompt),
+                ("human", "{info}"),
+            ]
+        )
+        model = order_plans_prompt | model
+        plans = {k:v["plans"] for k,v in object_plans.items()}
+        import json; plans = json.dumps(plans)
+        info = f"Context: {context}\nAll possible steps:\n{plans}"
+        response = model.invoke({"info": info})
+        response = ''.join(response.content.splitlines())
+        
+        try:
+            if '```json' not in response:
+                # try parsing on its own since we cannot always trust llms
+                parsed = eval(response) 
+            else:
+                parsed = parse_json(response)
+            if 'plans' not in parsed.keys():
+                raise ValueError("Missing all the required keys during generate. Retrying...")
+            if type(parsed['plans']) == str:
+                parsed['plans'] = eval(parsed['plans'])
+        except:
+            raise ValueError("Generate call failed. Retrying...")
+        # TODO delete me
+        print(context)
+        for p in parsed["plans"]:
+            print(f"{p['plan']} at {p['position']}")
+        print()
+        for p in parsed["plans"]:
+            print(f"{p['plan']} at {p['position']}: {p['desc']}")
+        import pdb; pdb.set_trace()
+        return {"messages": [str(parsed)]}
+
     ### Nodes
     def agent(self, state):
         """
@@ -484,6 +520,7 @@ class ReMEmbRPlanner(Planner):
         workflow.add_node("objects_action", ToolNode(self.tool_list))
         workflow.add_node("object_plans", lambda state: try_except_continue(state, self.object_plans))
         workflow.add_node("object_plans_action", ToolNode(self.tool_list))
+        workflow.add_node("order_plans", lambda state: try_except_continue(state, self.order))
         
         workflow.add_edge('objects_action', 'objects')
         workflow.add_conditional_edges(
@@ -500,9 +537,10 @@ class ReMEmbRPlanner(Planner):
             from_object_plans_to,
             {
                 "object_plans_action": "object_plans_action",
-                "end": END,
+                "order_plans": "order_plans",
             }
         )
+        workflow.add_edge("order_plans", END)
         workflow.set_entry_point("objects")
         # # Define the nodes we will cycle between
         # workflow.add_node("agent", lambda state: try_except_continue(state, self.agent))  # agent

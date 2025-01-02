@@ -342,7 +342,7 @@ class FunctionsWrapper(BaseChatModel, BaseLanguageModel):
                 parsed_chat_result = json.loads(chat_generation_content)
 
         except json.JSONDecodeError:
-            # import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace()
             raise ValueError(
                 f"""Model did not respond with valid JSON. 
                 Please try again. 
