@@ -21,5 +21,6 @@ if __name__ == "__main__":
         if user_input.lower() == 'q':
             print("Exiting the program.")
             exit(0)
-        response = agent.query(user_input)
-        response.print_plan(show_reasons=True)
+        agent.query(user_input)
+        # response = agent.query(user_input)
+        # response.print_plan(show_reasons=True)

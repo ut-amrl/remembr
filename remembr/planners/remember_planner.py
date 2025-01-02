@@ -90,8 +90,6 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     context: Annotated[Sequence, replace_messages]
     object_level_plans: Annotated[Sequence, replace_messages]
-    records: Annotated[Sequence, replace_messages] # TODO delete me
-    toolcalls: Annotated[Sequence, replace_messages] # TODO delete me
 
 def filter_retrieved_record(messages: list):
     records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
@@ -580,20 +578,21 @@ class ReMEmbRPlanner(Planner):
                                 (("user", question)),
             ]
         }
-        out = self.graph.invoke(inputs)
-        # out = self.graph.invoke(inputs, config={"recursion_limit": 50})
-        response = out['messages'][-1]
-        response = ''.join(response.content.splitlines())
+        self.graph.invoke(inputs)
+        # out = self.graph.invoke(inputs)
+        # # out = self.graph.invoke(inputs, config={"recursion_limit": 50})
+        # response = out['messages'][-1]
+        # response = ''.join(response.content.splitlines())
 
-        if '```json' not in response:
-            # try parsing on its own since we cannot always trust llms
-            parsed = eval(response) 
-        else:
-            parsed = parse_json(response)
+        # if '```json' not in response:
+        #     # try parsing on its own since we cannot always trust llms
+        #     parsed = eval(response) 
+        # else:
+        #     parsed = parse_json(response)
 
-        response = PlannerOutput.from_dict(parsed)
+        # response = PlannerOutput.from_dict(parsed)
 
-        return response
+        # return response
 
 if __name__ == "__main__":
     pass
