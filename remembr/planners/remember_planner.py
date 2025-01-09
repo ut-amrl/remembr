@@ -77,6 +77,7 @@ def parse_response(response: str, special_keys: list = [], messages = None):
                 parsed[key] = eval(parsed[key])
 
     except:
+        import pdb; pdb.set_trace()
         raise ValueError("Generate call failed. Retrying...")
     return parsed
 
@@ -165,6 +166,7 @@ class ReMEmbRPlanner(Planner):
         self.object_plans_terminate_prompt = file_to_string(top_level_path+'prompts/planner/planner_object_plans_terminate_prompt.txt')
         self.score_plans_prompt = file_to_string(top_level_path+'prompts/planner/score_plans_prompt.txt')
         self.order_plans_prompt = file_to_string(top_level_path+'prompts/planner/order_plans_prompt.txt')
+        self.align_plans_prompt = file_to_string(top_level_path+"prompts/planner/align_plans_prompt.txt")
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.objects_call_count = 0
@@ -419,6 +421,26 @@ class ReMEmbRPlanner(Planner):
                 print(f"{score} - {plan} because {reason}")
             print()
         return {"messages": [str(parsed)]}
+    
+    def align(self, state):
+        last_message = state["messages"][-1]
+        model = self.chat
+        prompt = self.align_plans_prompt
+        align_plans_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("ai", prompt),
+                last_message,
+            ]
+        )
+        model = align_plans_prompt | model
+        response = model.invoke({})
+        response = parse_response(response, special_keys=["plans"])
+        for p in response["plans"]:
+            print(p["plan"])
+            for command in p["implementation"].split(";"):
+                print(f"\t{command.strip()}")
+            print()
+        return {"messages": [str(response)]}
 
     ### Nodes
     def agent(self, state):
@@ -557,6 +579,7 @@ class ReMEmbRPlanner(Planner):
         workflow.add_node("object_plans_action", ToolNode(self.tool_list))
         workflow.add_node("score_plans", lambda state: try_except_continue(state, self.score))
         workflow.add_node("order_plans", lambda state: try_except_continue(state, self.order))
+        workflow.add_node("align_plans", lambda state: try_except_continue(state, self.align))
         
         workflow.add_edge('objects_action', 'objects')
         workflow.add_conditional_edges(
@@ -577,7 +600,8 @@ class ReMEmbRPlanner(Planner):
             }
         )
         workflow.add_edge("score_plans", "order_plans")
-        workflow.add_edge("order_plans", END)
+        workflow.add_edge("order_plans", "align_plans")
+        workflow.add_edge("align_plans", END)
         workflow.set_entry_point("objects")
 
         # Compile
