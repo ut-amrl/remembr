@@ -97,10 +97,10 @@ def run_video_in_segs(args):
         
     
 if __name__ == "__main__":
-    default_query = "<video>\n You are a wandering around a household kitchen/work area.\
+    default_query = "<video>\n You are a wandering around a household area.\
         Please describe in detail what you see in the few seconds of the video. \
         Specifically focus on the objects, events/ectivities, people and their actions, as well as other interesting details. \
-        importantly, you should pay attention to event and action seqeunces in details \
+        Importantly, you should describe objects in enough details (e.g. their colors, patterns, states) so that people can identify the same object via texts as much as possible. \
         Think step by step about these details and be very specific."
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")

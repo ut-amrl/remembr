@@ -51,6 +51,42 @@ def remember_caption_once(inpath: str) -> MilvusMemory:
     out_text = vila_model.caption(images)
     print(out_text)
     
+def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float = 0, reset: bool = True) -> MilvusMemory:
+    memory = MilvusMemory(MAIN_MEM, db_ip='127.0.0.1')
+    if reset:
+        memory.reset()
+    pos_offset = 0
+    with open(inpath, 'r') as f:
+        for entry in json.load(f):
+            t, pos, caption, start_frame, end_frame = entry["time"], entry["base_position"], entry["base_caption"], entry["start_frame"], entry["end_frame"]
+            # If pos only contains (x,y), append a dummy 0.0 as the z coordinate
+            from pathlib import Path
+            # TODO
+            vidpath = "/home/tiejean/RobotMem/data/images/"
+            if "iphones" in inpath:
+                vidpath = os.path.join(vidpath, "iphones")
+            vidpath = os.path.join(vidpath, Path(inpath).stem)
+            if len(pos) == 2:
+                pos += [0.0]
+            pos[0] += pos_offset # TODO DELETE ME
+            
+            from time import strftime, localtime
+            time = t+time_offset
+            timestr = strftime('%Y-%m-%d %H:%M:%S', localtime(time))
+            capstr = f"At time={timestr}, the robot was at an average position of {pos}. "
+            capstr += f"The robot saw the following: {caption}"
+            memory_item = MemoryItem(
+                caption=capstr,
+                time=time,
+                position=pos,
+                theta=0,
+                vidpath=vidpath,
+                start_frame=start_frame,
+                end_frame=end_frame
+            )
+            memory.insert(memory_item)
+            pos_offset += 1
+    return memory
 
 def remember_cobot(inpath: str) -> MilvusMemory:
     memory = MilvusMemory(MAIN_MEM, db_ip='127.0.0.1')

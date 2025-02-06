@@ -7,6 +7,9 @@ class MemoryItem:
     time: float
     position: list
     theta: float
+    vidpath: str
+    start_frame: int
+    end_frame: int
 
     @classmethod
     def from_dict(cls, dict_input):      
@@ -19,7 +22,12 @@ class MemoryItem:
         # Not every method will use a caption, so we set it to none in those cases
         if self.caption is None:
             self.caption = ''
-
+        if self.vidpath is None:
+            self.vidpath = ''
+        if self.start_frame is None:
+            self.start_frame = 0
+        if self.end_frame is None:
+            self.end_frame = 0
 
 class Memory:
 

@@ -14,8 +14,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
 
 
-FIXED_SUBTRACT=1721761000 # this is just a large value that brings us close to 1970
-
+# FIXED_SUBTRACT=1721761000 # this is just a large value that brings us close to 1970
+FIXED_SUBTRACT = 0
 
 
 class MilvusWrapper:
@@ -41,7 +41,9 @@ class MilvusWrapper:
             FieldSchema(name='theta', dtype=DataType.FLOAT, description='rotation of robot', dim=1),
             FieldSchema(name='time', dtype=DataType.FLOAT_VECTOR, description='time', dim=2),
             FieldSchema(name='caption', dtype=DataType.VARCHAR, description='caption string', max_length=3000),
-
+            FieldSchema(name='vidpath', dtype=DataType.VARCHAR, description='video image path', max_length=200),
+            FieldSchema(name='start_frame', dtype=DataType.INT64, description='video start frame', dim=1),
+            FieldSchema(name='end_frame', dtype=DataType.INT64, description='end start frame', dim=1)
         ]
         schema = CollectionSchema(fields=fields, description='text image search')
         collection = Collection(name=collection_name, schema=schema)
@@ -130,6 +132,10 @@ class MilvusMemory(Memory):
         memory_dict['time'] =  [(memory_dict['time'] - self.time_offset), 0.0]
 
         memory_dict['text_embedding'] = text_embedding
+        
+        memory_dict['vidpath'] = memory_dict['vidpath']
+        memory_dict['start_frame'] = memory_dict['start_frame']
+        memory_dict['end_frame'] = memory_dict['end_frame']
 
         self.milv_wrapper.insert([memory_dict])
 
@@ -212,8 +218,24 @@ class MilvusMemory(Memory):
         # np.unique([doc.metadata['time'][0] for doc in docs])
         """Look up things online."""
         return docs
-
-
+    
+    def search_by_datetime(self, mdy_hms_time: str) -> str:
+        template = "%Y-%m-%d %H:%M:%S"
+        try:
+            query = time.mktime(datetime.datetime.strptime(mdy_hms_time,template).timetuple())
+        except ValueError:
+            # TODO need some error message
+            query = time.time()
+            
+        import pdb; pdb.set_trace()
+            
+        docs = similarity_search_with_score_by_vector(self.time_vector_db, np.array([query, 0]))
+        self.working_memory += docs
+        docs = self.memory_to_string(docs)
+        # np.unique([doc.metadata['time'][0] for doc in docs])
+        import pdb; pdb.set_trace()
+        """Look up things online."""
+        return docs
 
     def search_by_text(self, query: str) -> str:
 
@@ -244,8 +266,12 @@ class MilvusMemory(Memory):
             t = localtime(t)
             t = strftime('%Y-%m-%d %H:%M:%S', t)
 
-            s = f"At time={t}, the robot was at an average position of {np.array(doc.metadata['position']).round(3).tolist()}."
-            s += f"The robot saw the following: {doc.page_content}\n\n"
+            # TODO fix this hardcoding
+            if "robot saw the following:" in doc.page_content:
+                s = f"{doc.page_content}\n\n"
+            else:
+                s = f"At time={t}, the robot was at an average position of {np.array(doc.metadata['position']).round(3).tolist()}."
+                s += f"The robot saw the following: {doc.page_content}\n\n"
             out_string += s
         return out_string
 
