@@ -31,7 +31,7 @@ from remembr.utils.util import file_to_string
 from remembr.tools.tools import *
 from remembr.tools.functions_wrapper import FunctionsWrapper
 
-from remembr.memory.memory import Memory
+from remembr.memory.milvus_video_memory import MilvusVideoMemory
 
 from remembr.planners.planner import Planner, PlannerOutput
 
@@ -89,8 +89,7 @@ class AgentState(TypedDict):
     # The add_messages function defines how an update should be processed
     # Default is to replace. add_messages says "append"
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    context: Annotated[Sequence, replace_messages]
-    object_level_plans: Annotated[Sequence, replace_messages]
+    object_qeury: Annotated[Sequence, replace_messages]
 
 def filter_retrieved_record(messages: list):
     records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
@@ -112,6 +111,9 @@ def from_object_to(state: AgentState):
         return "next"
     else:
         return "call_tools"
+    
+def from_backward_search_to(state: AgentState):
+    pass
     
 def try_except_continue(state, func):
     while True:
@@ -175,7 +177,7 @@ class ReMEmbRVideoPlanner(Planner):
 
         return llm
 
-    def set_memory(self, memory: Memory):
+    def set_memory(self, memory: MilvusVideoMemory):
         self.memory = memory
         self.create_tools(memory)
         self.build_graph()
@@ -268,6 +270,16 @@ class ReMEmbRVideoPlanner(Planner):
             self.object_query_call_cnt += 1
         # import pdb; pdb.set_trace()
         return {"messages": [response]}
+    
+    def backward_search(self, state):
+        last_message = state["messages"][-1]
+        object_query = last_message.content
+        import time; from time import strftime, localtime
+        currtime = time.time()
+        time_query = strftime("%Y-%m-%d", localtime(currtime))
+        query = f"{object_query} on {time_query}"
+        import pdb; pdb.set_trace()
+        self.memory.video_search_by_text(query)
 
     def build_graph(self):
 
@@ -278,15 +290,17 @@ class ReMEmbRVideoPlanner(Planner):
         workflow = StateGraph(AgentState)
         workflow.add_node("object", lambda state: try_except_continue(state, self.object))
         workflow.add_node("object_query_tools", ToolNode(self.tool_list))
+        workflow.add_node("backward_search", lambda state: try_except_continue(state, self.backward_search))
         workflow.add_edge("object_query_tools", "object")
         workflow.add_conditional_edges(
             "object",
             from_object_to,
             {
                 "call_tools": "object_query_tools",
-                "next": END
+                "next": "backward_search"
             }
         )
+        workflow.add_edge("backward_search", END)
         
         workflow.set_entry_point("object")
         # Compile

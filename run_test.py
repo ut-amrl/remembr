@@ -1,5 +1,3 @@
-from remembr.memory.memory import MemoryItem
-from remembr.memory.milvus_memory import MilvusMemory
 from remembr.planners.remember_video_planner import ReMEmbRVideoPlanner
 from remembr.memloaders.memloaders import *
 
@@ -11,13 +9,14 @@ if __name__ == "__main__":
     
     memory = None
     import time
-    t_offset = 1738816277.9279537; p_offset = 0
+    
     if args.uid == "tabletop_simple":
         inpaths = [
             "/home/tiejean/RobotMem/data/captions/iphones/taijing_table_1_VILA1.5-8b_3_secs.json",
             "/home/tiejean/RobotMem/data/captions/iphones/taijing_table_3_VILA1.5-8b_3_secs.json",
             "/home/tiejean/RobotMem/data/captions/iphones/taijing_table_4_VILA1.5-8b_3_secs.json"
         ]
+        t_offset = time.time()-len(inpaths)*86400 + 86400; p_offset = 0
         for i, inpath in enumerate(inpaths):
             memory = remember_dummy_video(inpath, time_offset=t_offset, pos_offset=p_offset, reset=(i == 0))
             t_offset += 86400; p_offset += 1

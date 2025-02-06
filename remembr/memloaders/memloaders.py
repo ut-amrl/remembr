@@ -5,6 +5,7 @@ import sys, os
 sys.path.append(os.getcwd())
 from remembr.memory.memory import MemoryItem
 from remembr.memory.milvus_memory import MilvusMemory
+from remembr.memory.milvus_video_memory import MilvusVideoMemory
 
 MAIN_MEM = "main_memory"
 
@@ -51,8 +52,8 @@ def remember_caption_once(inpath: str) -> MilvusMemory:
     out_text = vila_model.caption(images)
     print(out_text)
     
-def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float = 0, reset: bool = True) -> MilvusMemory:
-    memory = MilvusMemory(MAIN_MEM, db_ip='127.0.0.1')
+def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float = 0, reset: bool = True) -> MilvusVideoMemory:
+    memory = MilvusVideoMemory(MAIN_MEM, db_ip='127.0.0.1')
     if reset:
         memory.reset()
     pos_offset = 0
