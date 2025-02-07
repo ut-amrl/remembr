@@ -192,7 +192,7 @@ class ReMEmbRVideoPlanner(Planner):
                                 The query will then search your memories for you.")
 
         self.retriever_tool = StructuredTool.from_function(
-            func=lambda x: memory.search_by_text(x),
+            func=lambda x: memory.video_search_by_text(x),
             name="retrieve_from_text",
             description="Search and return information from your video memory in the form of captions",
             args_schema=TextRetrieverInput
@@ -261,14 +261,19 @@ class ReMEmbRVideoPlanner(Planner):
                 if type(messages[i]) == ToolMessage:
                     messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
         retrieved_records = filter_retrieved_record(messages=messages)
-        response = model.invoke({"question": question, "chat_history": retrieved_records})
+        processed_records = []
+        for record in retrieved_records:
+            processed_records += json.loads(record)
+        processed_records = [{"id": record["id"], "text": record["text"]} for record in processed_records]
+        parsed_processed_records = [json.dumps(record) for record in processed_records]
+        response = model.invoke({"question": question, "chat_history": parsed_processed_records})
         if response.tool_calls:
             for tool_call in response.tool_calls:
                 if tool_call['name'] != "__conversational_response":
                     args = re.sub("\{.*?\}", "", str(tool_call['args'])) # remove curly braces
                     self.previous_tool_requests += f"I previously used the {tool_call['name']} tool with the arguments: {args}.\n"
             self.object_query_call_cnt += 1
-        # import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         return {"messages": [response]}
     
     def backward_search(self, state):
