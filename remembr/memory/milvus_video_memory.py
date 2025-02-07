@@ -229,7 +229,7 @@ class MilvusVideoMemory(Memory):
             
         docs = similarity_search_with_score_by_vector(self.time_vector_db, np.array([query, 0]))
         self.working_memory += docs
-        docs = self.memory_to_string(docs)
+        docs = self.memory_to_json(docs)
         # np.unique([doc.metadata['time'][0] for doc in docs])
         """Look up things online."""
         return docs

@@ -146,8 +146,10 @@ class ReMEmbRVideoPlanner(Planner):
         self.embeddings = HuggingFaceEmbeddings(model_name='mixedbread-ai/mxbai-embed-large-v1')
 
         top_level_path = str(os.path.dirname(__file__)) + '/../'
-        self.object_prompt = file_to_string(top_level_path+'prompts/video_planner/object_text_prompt.txt')
-        self.object_terminate_prompt = file_to_string(top_level_path+'prompts/video_planner/object_text_terminate_prompt.txt')
+        self.instance_txt_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_txt_prompt.txt')
+        self.instance_txt_terminate_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_txt_terminate_prompt.txt')
+        self.instance_vid_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_vid_prompt.txt')
+        self.txt_search_prompt = file_to_string(top_level_path+'prompts/video_planner/txt_search_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.object_query_call_cnt = 0
@@ -232,15 +234,15 @@ class ReMEmbRVideoPlanner(Planner):
 
         self.tool_list = [self.retriever_tool, self.position_retriever_tool, self.time_retriever_tool]
         self.tool_definitions = [convert_to_openai_function(t) for t in self.tool_list]
-
-    def object(self, state):
+        
+    def instance_txt(self, state):
         messages = state["messages"]
         model = self.chat
         if self.object_query_call_cnt < self.config_max_object_query_call_cnt:
             model = model.bind_tools(tools=self.tool_definitions)
-            prompt = self.object_prompt
+            prompt = self.instance_txt_prompt
         else:
-            prompt = self.object_terminate_prompt
+            prompt = self.instance_txt_terminate_prompt
             # TODO this is the WRONG place to clear count. FIX ME!!!
             self.object_query_call_cnt = 0
         prompt = ChatPromptTemplate.from_messages(
@@ -254,17 +256,17 @@ class ReMEmbRVideoPlanner(Planner):
         )
         
         model = prompt | model
-        question = f"The question is: {messages[0]}"
+        question = f"The question from the user is: {messages[0]}"
         # Convert all ToolMessages into AI Messages since Ollama cann't handle ToolMessage
         if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
             for i in range(len(messages)):
                 if type(messages[i]) == ToolMessage:
                     messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
-        retrieved_records = filter_retrieved_record(messages=messages)
-        processed_records = []
-        for record in retrieved_records:
-            processed_records += json.loads(record)
-        processed_records = [{"id": record["id"], "text": record["text"]} for record in processed_records]
+        retrieved_messages = filter_retrieved_record(messages=messages)
+        retrieved_records = []
+        for record in retrieved_messages:
+            retrieved_records += json.loads(record)
+        processed_records = [{"record_id": record["id"], "text": record["text"]} for record in retrieved_records]
         parsed_processed_records = [json.dumps(record) for record in processed_records]
         response = model.invoke({"question": question, "chat_history": parsed_processed_records})
         if response.tool_calls:
@@ -273,18 +275,88 @@ class ReMEmbRVideoPlanner(Planner):
                     args = re.sub("\{.*?\}", "", str(tool_call['args'])) # remove curly braces
                     self.previous_tool_requests += f"I previously used the {tool_call['name']} tool with the arguments: {args}.\n"
             self.object_query_call_cnt += 1
-        import pdb; pdb.set_trace()
+            
+        # if not response.tool_calls:
+        #     vid_record = None
+        #     import pdb; pdb.set_trace()
+        #     for record in retrieved_records:
+        #         if record["id"] == response.content["id"]:
+        #             vid_record = record
+        #             break
+        #     if vid_record is None:
+        #         pass # TODO
         return {"messages": [response]}
+    
+    def instance_vid(self, state):
+        messages = state["messages"]
+        last_message = messages[-1]
+        model = self.chat
+        prompt = self.instance_vid_prompt
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder("chat_history"),
+                ("ai", prompt),
+                ("human", "{question}"),
+            ]
+        )
+        question = f"The question from the user is: {messages[0]}"
+        last_message_content = eval(last_message.content)
+        if "text" in last_message_content.keys():
+            question += f"This object is likely to match the following description: {last_message_content['text']}"
+        model = prompt | model
+        
+        if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
+            for i in range(len(messages)):
+                if type(messages[i]) == ToolMessage:
+                    messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
+        retrieved_messages = filter_retrieved_record(messages=messages)
+        retrieved_records = []
+        for record in retrieved_messages:
+            retrieved_records += json.loads(record)
+        processed_records = [{"record_id": record["id"], "text": record["text"]} for record in retrieved_records]
+        parsed_processed_records = [json.dumps(record) for record in processed_records]
+        response = model.invoke({"question": question, "chat_history": parsed_processed_records})
+        
+        # TODO handle the logics here
+        response_content = eval(response.content)
+        if "top_1_record" not in response_content.keys():
+            raise ValueError("LLM couldn't identify the video clip")
+        for record in retrieved_records:
+            if record["id"] == response_content["top_1_record"]:
+                self._get_images(record)
+                # TODO
+        
+        return {}
+    
+    def _get_images(self, vid_info: dict, sample_rate: int = 1):
+        vidpath, start_frame, end_frame = vid_info["vidpath"], vid_info["start_frame"], vid_info["end_frame"]
+        start_frame, end_frame = int(start_frame), int(end_frame)
+        for frame in range(start_frame, end_frame+1, sample_rate):
+            imgpath = os.path.join(vidpath, f"{frame:06d}.png")
+            # TODO
+        pass
     
     def backward_search(self, state):
         last_message = state["messages"][-1]
-        object_query = last_message.content
+        instance_txt_query = eval(last_message.content)
+        instance_txt_query = instance_txt_query["text"]
         import time; from time import strftime, localtime
         currtime = time.time()
         time_query = strftime("%Y-%m-%d", localtime(currtime))
-        query = f"{object_query} on {time_query}"
+        
+        question = f"I want to find an object that match this desciption: {instance_txt_query}. Today is {time_query}. When is the last time we observe this object?"
+        model = self.chat
+        prompt = self.instance_vid_prompt
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder("chat_history"),
+                ("ai", prompt),
+                ("human", "{question}"),
+            ]
+        )
+        
+        
         import pdb; pdb.set_trace()
-        self.memory.video_search_by_text(query)
 
     def build_graph(self):
 
@@ -293,21 +365,24 @@ class ReMEmbRVideoPlanner(Planner):
 
         # Define a new graph
         workflow = StateGraph(AgentState)
-        workflow.add_node("object", lambda state: try_except_continue(state, self.object))
-        workflow.add_node("object_query_tools", ToolNode(self.tool_list))
+        workflow.add_node("instance_txt", lambda state: try_except_continue(state, self.instance_txt))
+        workflow.add_node("instance_query_tools", ToolNode(self.tool_list))
+        workflow.add_node("instance_vid", lambda state: try_except_continue(state, self.instance_vid))
         workflow.add_node("backward_search", lambda state: try_except_continue(state, self.backward_search))
-        workflow.add_edge("object_query_tools", "object")
+        
+        workflow.add_edge("instance_query_tools", "instance_txt")
         workflow.add_conditional_edges(
-            "object",
+            "instance_txt",
             from_object_to,
             {
-                "call_tools": "object_query_tools",
-                "next": "backward_search"
+                "call_tools": "instance_query_tools",
+                "next": "instance_vid"
             }
         )
+        workflow.add_edge("instance_vid", "backward_search")
         workflow.add_edge("backward_search", END)
         
-        workflow.set_entry_point("object")
+        workflow.set_entry_point("instance_txt")
         # Compile
         self.graph = workflow.compile()
 

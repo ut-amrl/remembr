@@ -24,7 +24,6 @@ import shutil
 import json
 
 from tqdm import tqdm
-import cv2
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
