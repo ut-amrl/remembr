@@ -157,6 +157,14 @@ class MilvusVideoMemory(Memory):
             text_field='caption',
         )
         self.text_retriever = text_vector_db.as_retriever(search_kwargs={"k": 8})
+        text_vector_db2 = Milvus(
+            self.embedder,
+            connection_args={"host": self.db_ip, "port": self.db_port},
+            collection_name=self.db_collection_name,
+            vector_field='text_embedding',
+            text_field='caption',
+        )
+        self.text_retriever2 = text_vector_db2.as_retriever(search_kwargs={"k": 100})
 
 
         self.position_vector_db = Milvus(
@@ -234,7 +242,7 @@ class MilvusVideoMemory(Memory):
         """Look up things online."""
         return docs
     
-    def search_k_by_datetime(self, mdy_hms_time: str, k) -> str:
+    def search_k_by_datetime(self, mdy_hms_time: str, k: int) -> str:
         template = "%Y-%m-%d %H:%M:%S"
         try:
             query = time.mktime(datetime.datetime.strptime(mdy_hms_time,template).timetuple())
@@ -258,6 +266,13 @@ class MilvusVideoMemory(Memory):
 
         docs = self.memory_to_string(docs)
 
+        """Look up things online."""
+        return docs
+    
+    def searck_k_by_text(self, query: str, k: int) -> str:
+        docs = self.text_retriever2.invoke(query)
+        self.working_memory += docs
+        docs = self.memory_to_json(docs)
         """Look up things online."""
         return docs
     

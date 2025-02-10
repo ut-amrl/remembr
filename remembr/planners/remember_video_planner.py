@@ -323,14 +323,17 @@ class ReMEmbRVideoPlanner(Planner):
             question += f"This object is likely to match the following description: {last_message_content['text']}"
         model = prompt | model
         
-        if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
-            for i in range(len(messages)):
-                if type(messages[i]) == ToolMessage:
-                    messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
-        retrieved_messages = filter_retrieved_record(messages=messages)
-        retrieved_records = []
-        for record in retrieved_messages:
-            retrieved_records += json.loads(record)
+        # if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
+        #     for i in range(len(messages)):
+        #         if type(messages[i]) == ToolMessage:
+        #             messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
+        # retrieved_messages = filter_retrieved_record(messages=messages)
+        # retrieved_records = []
+        # for record in retrieved_messages:
+        #     retrieved_records += json.loads(record)
+        # processed_records = [{"record_id": record["id"], "text": record["text"]} for record in retrieved_records]
+        # parsed_processed_records = [json.dumps(record) for record in processed_records]
+        retrieved_records = state["filtered_messages"]
         processed_records = [{"record_id": record["id"], "text": record["text"]} for record in retrieved_records]
         parsed_processed_records = [json.dumps(record) for record in processed_records]
         response = model.invoke({"question": question, "chat_history": parsed_processed_records})
@@ -405,9 +408,19 @@ class ReMEmbRVideoPlanner(Planner):
                 raise ValueError("Invalid image data type: only support opencv or PIL")
         return images
     
+    def _retrieve_all_records(self, instance_txt: str, date: str = None):
+        retrieved_records = json.loads(self.memory.searck_k_by_text(instance_txt, k=100))
+        if date is not None:
+            filtered_records = []
+            for record in retrieved_records:
+                if date in record["text"]:
+                    filtered_records.append(record)
+            retrieved_records = filtered_records
+        return retrieved_records
+    
     def _retrieve_records_by_time(self, time: float, instance_txt: str = ""):
         now = strftime("%Y-%m-%d %H:%M:%S", localtime(time))
-        retrieved_records_by_time = json.loads(self.memory.search_k_by_datetime(now, k=100))
+        retrieved_records_by_time = json.loads(self.memory.search_k_by_datetime(now, k=200))
         today = strftime("%Y-%m-%d", localtime(time))
         retrieved_records_by_text = []
         if len(instance_txt) > 0:
@@ -497,7 +510,9 @@ class ReMEmbRVideoPlanner(Planner):
             currtime = time.time()
             currtime = 1738900977.4448056 # TODO delete me
             
-            retrieved_records = self._retrieve_records_by_time(time=currtime, instance_txt=instance_txt_query)
+            retrieved_records = self._retrieve_all_records(instance_txt_query, date="02-07") # TODO FIX ME
+            import pdb; pdb.set_trace()
+            # retrieved_records = self._retrieve_records_by_time(time=currtime, instance_txt=instance_txt_query)
             processed_records = []
             for record in retrieved_records:
                 processed_record = {"record_id": record["id"], "text": record["text"]}
@@ -515,6 +530,11 @@ class ReMEmbRVideoPlanner(Planner):
             for record in retrieved_records:
                 if record["id"] == vid_response["top_1_record"]:
                     self._debug_vid(record, debugdir)
+            if len(vid_response["top_2_record"]) > 0:
+                debugdir = "/home/tiejean/RobotMem/remembr/debug/top2_now"
+                for record in retrieved_records:
+                    if record["id"] == vid_response["top_2_record"]:
+                        self._debug_vid(record, debugdir)
             import pdb; pdb.set_trace()
             
         return {"messages": [vid_response, loc_response]}

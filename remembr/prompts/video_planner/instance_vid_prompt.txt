@@ -30,6 +30,7 @@ Format:
 ```
 
 Response Rules
+You should reason carefully if the records you rely on match the user intend. For example, if user asked for an item they used, you are asked to look for an item that's actually USED by someone. (Pay attention to actions).
 0. Pay close attention to time. A record is irrelevant if it is outside the time range that user is interested in, no matter how well the object descriptions match.
     a. For example, if the user is interested in a mug on 01-05, and record R from 01-06 contains the same mug, record R is irrelevant to this task.
 1. Return up to three records that most likely contain the object the user is looking for.

@@ -30,7 +30,9 @@ Format:
 ```
 Reasoning rules:
 0. Importantly, user is asking you about a specific event or object on a specific day. For example, if the user asks you "where is the mug I used yesterday" and today is 01-02, they want you to locate the incident where they were using the mug on 01-01. Any retrieved recrods from a different time are irrelevant to your reasoning. Similarly, if you just saw a mug, and no one was using them, these records are merely distractions as well.
-1. Handle Noisy Observations: For example, a blue mug with a starwar logo can be captioned as "a mug", "a blue mug", "a blue mug with a logo", "a blue and white mug", etc.. You must reason carefully about object properties to filter out inconsistent details. You can use "maybe", "likely", etc. in your response when you're uncertain about certain features.
+1. Handle Noisy Observations: 
+    a. Different level of details: For example, a blue mug with a starwar logo can be captioned as "a mug", "a blue mug", "a blue mug with a logo", "a blue and white mug", etc.. You must reason carefully about object properties to filter out inconsistent details. You can use "maybe", "likely", etc. in your response when you're uncertain about certain features.
+    b. Different wordings: For example, a mug can be captioned as a "cup", a "bottle", something to drink, etc. A notebook can be captioned as a "book", "booklet", something to write, etc.
 2. Identify Object Consistency Across Time: Since the observations are noisy, repeatedly mentioned objects across timestamps are likely the same. In addition, if two similarly described objects appear in close temporal proximity, assume they refer to the same entity unless strong evidence suggests otherwise.
 3. Focus on invariant attributes—those unlikely to change over time and space, such as color, shape, distinguishing features, labels (e.g., text on an object).
 4. Avoid including time- or location-dependent details since another agent will use your description to find the object in a different location and time.
@@ -71,6 +73,10 @@ Format:
 {{... <optionally call more tools> ...}}
 ]
 ```
+
+Reasoning rules:
+1.  You are encouraged to leverage on a diverse of retrieval tools before making your decision.
+2.  `retrieve_from_text` is a good tool to start with. It should inform you about the time and locations you should query.
 
 Example:
 User-specified task: "Today is 2025-02-06. Where is the mug that I used yesterday?"
