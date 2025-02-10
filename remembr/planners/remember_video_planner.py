@@ -155,6 +155,7 @@ class ReMEmbRVideoPlanner(Planner):
         self.instance_location_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_location_prompt.txt')
         self.instance_desc_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_desc_prompt.txt')
         self.txt_search_prompt = file_to_string(top_level_path+'prompts/video_planner/txt_search_prompt.txt')
+        self.same_instance_prompt = file_to_string(top_level_path+'prompts/video_planner/same_instance_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
         self.object_query_call_cnt = 0
@@ -241,6 +242,10 @@ class ReMEmbRVideoPlanner(Planner):
         self.tool_definitions = [convert_to_openai_function(t) for t in self.tool_list]
         
     def instance_txt(self, state):
+        
+        # self._group_records("someone using or drinking water with a cup/mug/bottle")
+        # import pdb; pdb.set_trace
+        
         messages = state["messages"]
         model = self.chat
         if self.object_query_call_cnt < self.config_max_object_query_call_cnt:
@@ -364,6 +369,17 @@ class ReMEmbRVideoPlanner(Planner):
         for i, img in enumerate(images):
                 imgpath = os.path.join(debugdir, f"{i:06d}.png")
                 import cv2; cv2.imwrite(imgpath, img)
+                
+    def _debug_grouped_vids(self, vids, debugdir: str):
+        os.makedirs(debugdir, exist_ok=True)
+        for filename in os.listdir(debugdir):
+                filepath = os.path.join(debugdir, filename)
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
+        for i, vid in enumerate(vids):
+            img = self._get_image(vid)
+            imgpath = os.path.join(debugdir, f"{i:06d}.png")
+            import cv2; cv2.imwrite(imgpath, img)
     
     def _parse_vid_response(self, response, retrieved_records):
         vids = [None, None, None]
@@ -383,6 +399,27 @@ class ReMEmbRVideoPlanner(Planner):
                 import copy; vids[idx] = copy.copy(record)
                 vids[idx]["reason"] = reason
         return vids
+    
+    def _get_image(self, vid_info: dict, type: str = "opencv"):
+        vidpath, start_frame, end_frame = vid_info["vidpath"], vid_info["start_frame"], vid_info["end_frame"]
+        start_frame, end_frame = int(start_frame), int(end_frame)
+        frame = (start_frame + end_frame) // 2
+        imgpath = os.path.join(vidpath, f"{frame:06d}.png")
+        if type.lower() == "opencv":
+            img = cv2.imread(imgpath)
+            return img
+        elif type.lower() == "pil":
+            from PIL import Image; img = Image.open(imgpath)
+            return img
+        elif type.lower() == "utf-8":
+            import base64
+            with open(imgpath, "rb") as imgfile:
+                data = imgfile.read()
+                img = base64.b64encode(data)
+                encoded_img = copy.copy(img.decode("utf-8"))
+            return {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_img}"}}
+        else:
+            raise ValueError("Invalid image data type: only support opencv or PIL")
     
     def _get_images(self, vid_info: dict, type: str = "opencv", sample_rate: int = 1):
         vidpath, start_frame, end_frame = vid_info["vidpath"], vid_info["start_frame"], vid_info["end_frame"]
@@ -407,6 +444,59 @@ class ReMEmbRVideoPlanner(Planner):
             else:
                 raise ValueError("Invalid image data type: only support opencv or PIL")
         return images
+    
+    def _is_same_instance(self, img1, img2, instance_txt: str):
+        image_messages = [img1, img2]
+        from langchain_core.messages import HumanMessage
+        prompt = self.same_instance_prompt
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("ai", prompt),
+                HumanMessage(content=image_messages),
+                ("human", "{question}")
+            ]
+        )
+        question = "Does these two images contain the same mug, cup, or bottle?" # TODO
+        
+        model = self.chat
+        model = prompt | model
+        import pdb; pdb.set_trace()
+        response = model.invoke({"question": question})
+        response_content = eval(response.content)
+        is_same_instance = response_content["same_instance"]
+        return (is_same_instance, response)
+    
+    def _group_records(self, instance_txt: str):
+        retrieved_records = self._retrieve_all_records(instance_txt)
+        merged_records = self.__merge_records(retrieved_records)
+        self._debug_grouped_vids(merged_records, debugdir="/home/tiejean/RobotMem/remembr/debug/segments")
+        
+        for i in range(len(merged_records)):
+            img1 = self._get_image(merged_records[i], type="utf-8")
+            for j in range(i+1, len(merged_records)):
+                img2 = self._get_image(merged_records[j], type="utf-8")
+                (same_instance, _) = self._is_same_instance(img1, img2, "")
+                import pdb; pdb.set_trace()
+        
+        import pdb; pdb.set_trace()
+        
+    def __merge_records(self, records: list):
+        if len(records) == 0:
+            return records
+        records = sorted(records, key=lambda x: x["text"])
+        merged_records = []
+        curr_record = copy.copy(records[0])
+        for record in records[1:]:
+            t1 = float(curr_record["id"])
+            t2 = float(record["id"])
+            if t2 - t1 < 0.2: # TODO
+                curr_record["id"] = t2
+                curr_record["end_frame"] = record["end_frame"]
+                curr_record["text"] += record["text"]
+            else:
+                merged_records.append(curr_record)
+                curr_record = copy.copy(record)
+        return merged_records
     
     def _retrieve_all_records(self, instance_txt: str, date: str = None):
         retrieved_records = json.loads(self.memory.searck_k_by_text(instance_txt, k=100))

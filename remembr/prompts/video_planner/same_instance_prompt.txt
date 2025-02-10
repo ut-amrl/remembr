@@ -1,0 +1,22 @@
+You will be presented with two images. The user is wondering if two images contain the same instance.
+
+To complete this task, you must use the __conversational_response tool to provide your answer.
+Your response must strictly follow this JSON format (Your response should will be parsed by a JSON decoder without any preprocessing):
+Format:
+```json
+[{{
+    "tool": "__conversational_response", 
+    "tool_input": {{ 
+        "response":  {{
+            "image1_instance_description": "-explain if you saw the instance in image 1; If so, describe the instance in image 1-",
+            "image2_instance_description": "-explain if you saw the instance in image 2; If so, describe the instance in image 2-",
+            "answer_reasoning": "-explain why you give yes or no answer-",
+            "same_instance": "-yes/no-"
+        }}
+    }}
+}}]
+```
+
+Rules for reasoning:
+1. If either image does not contain the object, you must answer no.
+    a. For example, if user is looking for a toy, but there is no toy in image 1, the correct answer is "no".
