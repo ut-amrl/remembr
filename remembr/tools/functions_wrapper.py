@@ -364,7 +364,7 @@ class FunctionsWrapper(BaseChatModel, BaseLanguageModel):
             )
 
             if called_tool is None:
-                # import pdb; pdb.set_trace()
+                import pdb; pdb.set_trace()
                 raise ValueError(
                     f"Failed to parse a function call from output: "
                     f"{chat_generation_content}"

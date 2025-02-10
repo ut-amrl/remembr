@@ -42,7 +42,14 @@ def run_video_in_segs(args):
     embedder = HuggingFaceEmbeddings(model_name='mixedbread-ai/mxbai-embed-large-v1')
     args.device_map = 'auto'
     vila_model = VILACaptioner(args)
-
+    
+    from pathlib import Path
+    video_name = args.bagname
+    task_name = f"{video_name}_{args.captioner_name}_{args.seconds_per_caption}_secs"
+    if args.image_path is not None:
+        os.makedirs(args.image_path, exist_ok=True)
+        images_location = os.path.join(args.image_path, f"{task_name}")
+        os.makedirs(images_location, exist_ok=True)
     with rosbag.Bag(bagfile, 'r') as bag:
         n_base_images = bag.get_message_count(topic_filters=['/camera2/color/image_raw/compressed'])
         n_wrist_images = bag.get_message_count(topic_filters=['/camera/color/image_raw/compressed'])
@@ -52,8 +59,8 @@ def run_video_in_segs(args):
         segments = []
 
         # caption base images
-        start_time = None
-        images = []
+        start_time = None; img_id = 0
+        images = []; frames = []
         for topic, msg, t in tqdm(bag.read_messages(topics=["/camera2/color/image_raw/compressed"]), total=n_base_images, desc="Captioning base images"):
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
@@ -67,6 +74,16 @@ def run_video_in_segs(args):
                 # store time window & captions for base camera
                 segments.append((start_time, t.to_sec()))
                 base_captions.append(out_text)
+                start_frame_id = img_id
+                for image in images:
+                    if args.image_path is not None:
+                        imgpath = os.path.join(images_location, f"{img_id:06d}.png")
+                        opencv_image = np.array(image)
+                        opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite(imgpath, opencv_image)
+                    img_id += 1
+                end_frame_id = img_id - 1
+                frames.append((start_frame_id, end_frame_id))
                 start_time = t.to_sec()
                 images = [pil_image]
 
@@ -88,65 +105,69 @@ def run_video_in_segs(args):
                 break
             
         # caption wrist images
-        sid = 0
-        images = []
-        for topic, msg, t in tqdm(bag.read_messages(topics=["/camera/color/image_raw/compressed"]), total=n_wrist_images, desc="Captioning wrist images"):
-            start_t, end_t = segments[sid]
-            if t.to_sec() < start_t:
-                continue
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
-            if t.to_sec() > end_t:
-                images = images[::30//args.num_video_frames]
-                out_text = vila_model.caption(images)
-                wrist_captions.append(out_text)
-                sid += 1
-                images = [pil_image]
-            else:
-                images.append(pil_image)
-            if sid >= len(segments):
-                break
+        # sid = 0
+        # images = []
+        # for topic, msg, t in tqdm(bag.read_messages(topics=["/camera/color/image_raw/compressed"]), total=n_wrist_images, desc="Captioning wrist images"):
+        #     start_t, end_t = segments[sid]
+        #     if t.to_sec() < start_t:
+        #         continue
+        #     np_arr = np.frombuffer(msg.data, np.uint8)
+        #     cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        #     pil_image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+        #     if t.to_sec() > end_t:
+        #         images = images[::30//args.num_video_frames]
+        #         out_text = vila_model.caption(images)
+        #         wrist_captions.append(out_text)
+        #         sid += 1
+        #         images = [pil_image]
+        #     else:
+        #         images.append(pil_image)
+        #     if sid >= len(segments):
+        #         break
 
         
         outputs = []
-        for base_caption, wrist_caption, base_position, (start_t, end_t) in zip(base_captions, wrist_captions, base_positions, segments):
+        for base_caption, base_position, (start_t, end_t), (start_frame, end_frame) in zip(base_captions, base_positions, segments, frames):
             base_caption_embedding = embedder.embed_query(base_caption)
-            wrist_caption_embedding = embedder.embed_query(wrist_caption)
+            # wrist_caption_embedding = embedder.embed_query(wrist_caption)
             entity = {
                 "time": np.mean([start_t, end_t]),
                 "base_position": base_position,
                 "base_caption": base_caption,
                 "base_caption_embedding": base_caption_embedding,
-                "wrist_caption": wrist_caption,
-                "wrist_caption_embedding": wrist_caption_embedding
+                "wrist_caption": "",
+                "wrist_caption_embedding": [], 
+                "start_frame": start_frame,
+                "end_frame": end_frame
             }
             outputs.append(entity)
 
         os.makedirs(args.out_path, exist_ok=True)
-        captions_location = os.path.join(args.out_path, args.bagname)
-        os.makedirs(captions_location, exist_ok=True)
-        filepath = os.path.join(captions_location, f'captions_{args.captioner_name}_{args.seconds_per_caption}_secs.json')
+        filepath = os.path.join(args.out_path, f'{task_name}.json')
         with open(filepath, 'w') as f:
             print(f"Writing data to {filepath}")
             json.dump(outputs, f, cls=NumpyEncoder)
 
 
 if __name__ == "__main__":
-    default_query = "<video>\n You are a wandering around a household kitchen/work area.\
+    default_query = "<video>\n You are a wandering around a household area.\
         Please describe in detail what you see in the few seconds of the video. \
-        Specifically focus on the people, objects, environmental features, events/ectivities, and other interesting details. Think step by step about these details and be very specific."
+        Specifically focus on the objects, events/ectivities, people and their actions, as well as other interesting details. \
+        Importantly, you should describe objects in enough details (e.g. their colors, patterns, states) so that people can identify the same object via texts as much as possible. \
+        For example, when you see a box, you should describe its color, any images or logos on it, etc.. \
+        Think step by step about these details and be very specific."
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="Efficient-Large-Model/Llama-3-VILA1.5-8B")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--bagname", type=str, default="")
-    parser.add_argument("--data_path", type=str, default="./coda_data")
-    parser.add_argument("--out_path", type=str, default="./data/captions")
+    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument("--out_path", type=str, required=True)
+    parser.add_argument("--image_path", type=str, default=None, help="Save images to the path if specified.")
     parser.add_argument("--captioner_name", type=str, default="VILA1.5-8b")
 
-    parser.add_argument("--seconds_per_caption", type=int, default=5)
+    parser.add_argument("--seconds_per_caption", type=int, default=3)
 
-    parser.add_argument("--num-video-frames", type=int, default=6)
+    parser.add_argument("--num-video-frames", type=int, default=5)
     parser.add_argument("--query", type=str, default=default_query)
     parser.add_argument("--conv-mode", type=str, default="llama_3")
     parser.add_argument("--sep", type=str, default=",")

@@ -1,5 +1,6 @@
 from typing import List
 import json
+from pathlib import Path
 
 import sys, os
 sys.path.append(os.getcwd())
@@ -61,7 +62,6 @@ def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float 
         for entry in json.load(f):
             t, pos, caption, start_frame, end_frame = entry["time"], entry["base_position"], entry["base_caption"], entry["start_frame"], entry["end_frame"]
             # If pos only contains (x,y), append a dummy 0.0 as the z coordinate
-            from pathlib import Path
             # TODO
             vidpath = "/home/tiejean/RobotMem/data/images/"
             if "iphones" in inpath:
@@ -87,6 +87,42 @@ def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float 
             )
             memory.insert(memory_item)
             pos_offset += 1
+    return memory
+
+def remember_cobot_vid(inpath: list, time_offset: float = 0, reset: bool = True) -> MilvusVideoMemory:
+    memory = MilvusVideoMemory(MAIN_MEM, db_ip='127.0.0.1')
+    if reset:
+        memory.reset()
+    start_time = None
+    with open(inpath, 'r') as f:
+        for entry in json.load(f):
+            t, pos, caption, start_frame, end_frame = entry["time"], entry["base_position"], entry["base_caption"], entry["start_frame"], entry["end_frame"]
+            if start_time is None:
+                start_time = t
+            t = t - start_time + 1.5 + time_offset
+            # If pos only contains (x,y), append a dummy 0.0 as the z coordinate
+            if len(pos) == 2:
+                pos += [0.0]
+            pos = [round(p, 1) for p in pos]
+            
+            from time import strftime, localtime
+            timestr = strftime('%Y-%m-%d %H:%M:%S', localtime(t))
+            capstr = f"At time={timestr}, the robot was at an average position of {pos}. "
+            capstr += f"The robot saw the following: {caption}"
+            vidpath = "/home/tiejean/RobotMem/data/images/"
+            if "cobot" in inpath:
+                vidpath = os.path.join(vidpath, "bag")
+            vidpath = os.path.join(vidpath, Path(inpath).stem)
+            memory_item = MemoryItem(
+                caption=capstr,
+                time=t,
+                position=pos,
+                theta=0,
+                vidpath=vidpath,
+                start_frame=start_frame,
+                end_frame=end_frame
+            )
+            memory.insert(memory_item)
     return memory
 
 def remember_cobot(inpath: str) -> MilvusMemory:

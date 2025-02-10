@@ -22,10 +22,11 @@ from langchain_core.utils.function_calling import convert_to_openai_function
 
 from langchain.tools import StructuredTool
 from langchain_core.pydantic_v1 import BaseModel, Field
-
+import cv2
 import json
 import sys, os
 sys.path.append(os.getcwd())
+import copy
 
 from remembr.utils.util import file_to_string
 from remembr.tools.tools import *
@@ -89,7 +90,9 @@ class AgentState(TypedDict):
     # The add_messages function defines how an update should be processed
     # Default is to replace. add_messages says "append"
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    object_qeury: Annotated[Sequence, replace_messages]
+    identified_instance: Annotated[Sequence, replace_messages]
+    instance_text: Annotated[Sequence, replace_messages]
+    filtered_messages: Annotated[Sequence, replace_messages]
 
 def filter_retrieved_record(messages: list):
     records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
@@ -149,6 +152,8 @@ class ReMEmbRVideoPlanner(Planner):
         self.instance_txt_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_txt_prompt.txt')
         self.instance_txt_terminate_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_txt_terminate_prompt.txt')
         self.instance_vid_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_vid_prompt.txt')
+        self.instance_location_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_location_prompt.txt')
+        self.instance_desc_prompt = file_to_string(top_level_path+'prompts/video_planner/instance_desc_prompt.txt')
         self.txt_search_prompt = file_to_string(top_level_path+'prompts/video_planner/txt_search_prompt.txt')
 
         self.previous_tool_requests = "These are the tools I have previously used so far: \n"
@@ -161,7 +166,7 @@ class ReMEmbRVideoPlanner(Planner):
         # Support for LLM Gateway
         if 'gpt-4' in llm_type:
             import os
-            llm = ChatOpenAI(model=llm_type, api_key=os.environ.get("OPENAI_API_KEY"))
+            llm = ChatOpenAI(model='gpt-4o', api_key=os.environ.get("OPENAI_API_KEY"))
 
         # Support for NIMs
         elif 'nim/' in llm_type:
@@ -247,25 +252,36 @@ class ReMEmbRVideoPlanner(Planner):
             self.object_query_call_cnt = 0
         prompt = ChatPromptTemplate.from_messages(
             [
-                # ("system", prompt),
                 MessagesPlaceholder("chat_history"),
                 (("human"), self.previous_tool_requests),
-                ("ai", prompt),
+                ("system", prompt),
                 ("human", "{question}"),
             ]
         )
         
         model = prompt | model
-        question = f"The question from the user is: {messages[0]}"
+        question = messages[0].content
+        question = f"The question from the user is: {question}"
         # Convert all ToolMessages into AI Messages since Ollama cann't handle ToolMessage
         if ('gpt-4' not in self.llm_type) and ('nim' not in self.llm_type):
             for i in range(len(messages)):
                 if type(messages[i]) == ToolMessage:
                     messages[i] = AIMessage(id=messages[i].id, content=messages[i].content) # ignore tool_call_id
+        if "the day before yesterday" in question:
+            date = "02-05"
+        elif "yesterday" in question:
+            date = "02-06"
+        else:
+            date = ""
+            
         retrieved_messages = filter_retrieved_record(messages=messages)
         retrieved_records = []
-        for record in retrieved_messages:
-            retrieved_records += json.loads(record)
+        for records in retrieved_messages:
+            # retrieved_records += json.loads(record)
+            for r in json.loads(records):
+                if date in r["text"]:
+                    retrieved_records.append(r)
+                
         processed_records = [{"record_id": record["id"], "text": record["text"]} for record in retrieved_records]
         parsed_processed_records = [json.dumps(record) for record in processed_records]
         response = model.invoke({"question": question, "chat_history": parsed_processed_records})
@@ -276,17 +292,19 @@ class ReMEmbRVideoPlanner(Planner):
                     self.previous_tool_requests += f"I previously used the {tool_call['name']} tool with the arguments: {args}.\n"
             self.object_query_call_cnt += 1
             
-        # if not response.tool_calls:
-        #     vid_record = None
-        #     import pdb; pdb.set_trace()
-        #     for record in retrieved_records:
-        #         if record["id"] == response.content["id"]:
-        #             vid_record = record
-        #             break
-        #     if vid_record is None:
-        #         pass # TODO
-        return {"messages": [response]}
-    
+        if not response.tool_calls:
+            response_content = eval(response.content)
+            record_ids = response_content["record_ids"]
+            if type(record_ids) is str:
+                record_ids = eval(record_ids)
+            debugdir = "/home/tiejean/RobotMem/remembr/debug/top1_txt_past"
+            for record in retrieved_records:
+                if record["id"] == record_ids[0]:
+                    self._debug_vid(record, debugdir)
+            return {"messages": [response], "instance_text": response, "filtered_messages": retrieved_records}
+        else:
+            return {"messages": [response], "filtered_messages": retrieved_records}
+        
     def instance_vid(self, state):
         messages = state["messages"]
         last_message = messages[-1]
@@ -317,34 +335,96 @@ class ReMEmbRVideoPlanner(Planner):
         parsed_processed_records = [json.dumps(record) for record in processed_records]
         response = model.invoke({"question": question, "chat_history": parsed_processed_records})
         
-        # TODO handle the logics here
-        response_content = eval(response.content)
-        if "top_1_record" not in response_content.keys():
-            raise ValueError("LLM couldn't identify the video clip")
-        for record in retrieved_records:
-            if record["id"] == response_content["top_1_record"]:
-                self._get_images(record)
-                # TODO
+        identified_records = self._parse_vid_response(response, retrieved_records)
         
-        return {}
+        # TODO handle the logics here
+        if True:
+            response_content = eval(response.content)
+            if "top_1_record" not in response_content.keys():
+                raise ValueError("LLM couldn't identify the video clip")
+            
+            # TODO debug
+            debugdir = "/home/tiejean/RobotMem/remembr/debug/top1_past"
+            for record in retrieved_records:
+                if record["id"] == response_content["top_1_record"]:
+                    self._debug_vid(record, debugdir)
+                        
+        return {"identified_instance": identified_records, "messages": [response]}
     
-    def _get_images(self, vid_info: dict, sample_rate: int = 1):
+    def _debug_vid(self, vid, debugdir: str):
+        os.makedirs(debugdir, exist_ok=True)
+        for filename in os.listdir(debugdir):
+                filepath = os.path.join(debugdir, filename)
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
+        images = self._get_images(vid)
+        for i, img in enumerate(images):
+                imgpath = os.path.join(debugdir, f"{i:06d}.png")
+                import cv2; cv2.imwrite(imgpath, img)
+    
+    def _parse_vid_response(self, response, retrieved_records):
+        vids = [None, None, None]
+        vids_meta = eval(response.content)
+        for record in retrieved_records:
+            idx = None
+            if record["id"] == vids_meta["top_1_record"]:
+                idx = 0
+                reason = vids_meta["reasoning_for_top_1_record"]
+            elif record["id"] == vids_meta["top_2_record"]:
+                idx = 1
+                reason = vids_meta["reasoning_for_top_2_record"]
+            elif record["id"] == vids_meta["top_3_record"]:
+                idx = 2
+                reason = vids_meta["reasoning_for_top_3_record"]
+            if idx is not None:
+                import copy; vids[idx] = copy.copy(record)
+                vids[idx]["reason"] = reason
+        return vids
+    
+    def _get_images(self, vid_info: dict, type: str = "opencv", sample_rate: int = 1):
         vidpath, start_frame, end_frame = vid_info["vidpath"], vid_info["start_frame"], vid_info["end_frame"]
         start_frame, end_frame = int(start_frame), int(end_frame)
+        images = []
         for frame in range(start_frame, end_frame+1, sample_rate):
             imgpath = os.path.join(vidpath, f"{frame:06d}.png")
-            # TODO
-        pass
+            if type.lower() == "opencv":
+                img = cv2.imread(imgpath)
+                images.append(img)
+            elif type.lower() == "pil":
+                from PIL import Image; img = Image.open(imgpath)
+                images.append(img)
+            elif type.lower() == "utf-8":
+                import base64
+                with open(imgpath, "rb") as imgfile:
+                    data = imgfile.read()
+                    img = base64.b64encode(data)
+                    encoded_img = copy.copy(img.decode("utf-8"))
+                images.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_img}"}}) 
+                break # TODO remove me
+            else:
+                raise ValueError("Invalid image data type: only support opencv or PIL")
+        return images
     
-    def backward_search(self, state):
-        last_message = state["messages"][-1]
-        instance_txt_query = eval(last_message.content)
-        instance_txt_query = instance_txt_query["text"]
-        import time; from time import strftime, localtime
-        currtime = time.time()
-        time_query = strftime("%Y-%m-%d", localtime(currtime))
-        
-        question = f"I want to find an object that match this desciption: {instance_txt_query}. Today is {time_query}. When is the last time we observe this object?"
+    def _retrieve_records_by_time(self, time: float, instance_txt: str = ""):
+        now = strftime("%Y-%m-%d %H:%M:%S", localtime(time))
+        retrieved_records_by_time = json.loads(self.memory.search_k_by_datetime(now, k=100))
+        today = strftime("%Y-%m-%d", localtime(time))
+        retrieved_records_by_text = []
+        if len(instance_txt) > 0:
+            retrieved_records_by_text = json.loads(self.memory.video_search_by_text(f"{instance_txt} on {today}"))
+        all_retrieved_records = retrieved_records_by_time + retrieved_records_by_text
+        record_ids = set()
+        for record in all_retrieved_records:
+            if today in record["text"]:
+                record_ids.add(record["id"])
+        retrieved_records = []
+        for record in all_retrieved_records:
+            if record["id"] in record_ids:
+                retrieved_records.append(record)
+                record_ids.remove(record["id"])
+        return retrieved_records
+    
+    def _find_vids(self, records: list, question: str):
         model = self.chat
         prompt = self.instance_vid_prompt
         prompt = ChatPromptTemplate.from_messages(
@@ -354,9 +434,90 @@ class ReMEmbRVideoPlanner(Planner):
                 ("human", "{question}"),
             ]
         )
+        model = prompt | model
+        response = model.invoke({"question": question, "chat_history": records})
+        return response
+    
+    def _find_locs(self, records: list, question: str):
+        model = self.chat
+        prompt = self.instance_location_prompt
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder("chat_history"),
+                ("ai", prompt),
+                ("human", "{question}"),
+            ]
+        )
+        model = prompt | model
+        response = model.invoke({"question": question, "chat_history": records})
+        return response
+    
+    def instance_desc(self, state):
+        instance_txt = eval(state["instance_text"].content)["text"]
+        identified_vids = state["identified_instance"]
         
+        identified_instances = []
+        for vid in identified_vids:
+            if vid is None:
+                break
+            imgs = self._get_images(vid, type="utf-8", sample_rate=5)
+            
+            human_message_content = imgs
+            question = f"The user is looking for a detailed, contextualized description of an instance appearing in a video. The instance is likely to match the following description: {instance_txt}"
+            from langchain_core.messages import HumanMessage
+            
+            prompt = self.instance_desc_prompt
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("ai", prompt),
+                    HumanMessage(content=human_message_content),
+                    ("human", "{question}")
+                ]
+            )
+            model = self.chat
+            model = prompt | model
+            response = model.invoke({"question": question})
+            entry = copy.copy(vid)
+            entry["desc"] = response.content
+            identified_instances.append(entry)
+        return {"identified_instance": identified_instances, "messages": [response]}
+    
+    def backward_search(self, state):
+        # last_message = state["messages"][-1]
+        # instance_txt_query = eval(last_message.content)
+        # instance_txt_query = instance_txt_query["text"]
         
-        import pdb; pdb.set_trace()
+        identified_instances = state["identified_instance"]
+        for identified_instance in identified_instances:
+            instance_txt_query = identified_instance["desc"]
+        
+            import time; from time import strftime, localtime
+            
+            # TODO FIX ME
+            currtime = time.time()
+            currtime = 1738900977.4448056 # TODO delete me
+            
+            retrieved_records = self._retrieve_records_by_time(time=currtime, instance_txt=instance_txt_query)
+            processed_records = []
+            for record in retrieved_records:
+                processed_record = {"record_id": record["id"], "text": record["text"]}
+                processed_records.append(processed_record)
+            parsed_processed_records = [json.dumps(record) for record in processed_records]
+            
+            vid_question = f"I want to find an object that match this desciption: {instance_txt_query}. When is the last time I saw this object?"
+            vid_response_msg = self._find_vids(records=parsed_processed_records, question=vid_question)
+            vid_response = eval(vid_response_msg.content)
+            loc_question = f"I want to find an object that match this desciption: {instance_txt_query}. Where did I observe this object last time?"
+            loc_response_msg = self._find_locs(records=parsed_processed_records, question=loc_question)
+            loc_response = eval(loc_response_msg.content)
+            
+            debugdir = "/home/tiejean/RobotMem/remembr/debug/top1_now"
+            for record in retrieved_records:
+                if record["id"] == vid_response["top_1_record"]:
+                    self._debug_vid(record, debugdir)
+            import pdb; pdb.set_trace()
+            
+        return {"messages": [vid_response, loc_response]}
 
     def build_graph(self):
 
@@ -368,6 +529,7 @@ class ReMEmbRVideoPlanner(Planner):
         workflow.add_node("instance_txt", lambda state: try_except_continue(state, self.instance_txt))
         workflow.add_node("instance_query_tools", ToolNode(self.tool_list))
         workflow.add_node("instance_vid", lambda state: try_except_continue(state, self.instance_vid))
+        workflow.add_node("instance_desc", lambda state: try_except_continue(state, self.instance_desc))
         workflow.add_node("backward_search", lambda state: try_except_continue(state, self.backward_search))
         
         workflow.add_edge("instance_query_tools", "instance_txt")
@@ -379,7 +541,8 @@ class ReMEmbRVideoPlanner(Planner):
                 "next": "instance_vid"
             }
         )
-        workflow.add_edge("instance_vid", "backward_search")
+        workflow.add_edge("instance_vid", "instance_desc")
+        workflow.add_edge("instance_desc", "backward_search")
         workflow.add_edge("backward_search", END)
         
         workflow.set_entry_point("instance_txt")

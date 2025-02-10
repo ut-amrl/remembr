@@ -156,7 +156,7 @@ class MilvusVideoMemory(Memory):
             vector_field='text_embedding',
             text_field='caption',
         )
-        self.text_retriever = text_vector_db.as_retriever(search_kwargs={"k": 5})
+        self.text_retriever = text_vector_db.as_retriever(search_kwargs={"k": 8})
 
 
         self.position_vector_db = Milvus(
@@ -214,7 +214,7 @@ class MilvusVideoMemory(Memory):
 
         self.working_memory += docs
 
-        docs = self.memory_to_string(docs)
+        docs = self.memory_to_json(docs)
         # np.unique([doc.metadata['time'][0] for doc in docs])
         """Look up things online."""
         return docs
@@ -233,6 +233,22 @@ class MilvusVideoMemory(Memory):
         # np.unique([doc.metadata['time'][0] for doc in docs])
         """Look up things online."""
         return docs
+    
+    def search_k_by_datetime(self, mdy_hms_time: str, k) -> str:
+        template = "%Y-%m-%d %H:%M:%S"
+        try:
+            query = time.mktime(datetime.datetime.strptime(mdy_hms_time,template).timetuple())
+        except ValueError:
+            # TODO need some error message
+            query = time.time()
+           
+        docs = similarity_search_with_score_by_vector(self.time_vector_db, np.array([query, 0]), k=k)
+        self.working_memory += docs
+        docs = self.memory_to_json(docs)
+        # np.unique([doc.metadata['time'][0] for doc in docs])
+        """Look up things online."""
+        return docs 
+            
 
     def search_by_text(self, query: str) -> str:
 
