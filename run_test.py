@@ -47,6 +47,8 @@ if __name__ == "__main__":
     elif args.uid == "cobot3":
         inpaths = [
             "/home/tiejean/RobotMem/data/captions/cobot/2025-02-08-16-49-07_VILA1.5-8b_3_secs.json",
+            "/home/tiejean/RobotMem/data/captions/cobot/2025-02-08-16-39-19_VILA1.5-8b_3_secs.json",
+            "/home/tiejean/RobotMem/data/captions/cobot/2025-02-08-17-07-39_VILA1.5-8b_3_secs.json",
         ]
         user_input = "Today is 2025-02-07. Where is the bottle that I used to drink water the day before yesterday?"
         t_offset = 1738952666.5530548-len(inpaths)*86400 + 86400; p_offset = 0
@@ -56,7 +58,11 @@ if __name__ == "__main__":
     # memory.search_by_datetime("2025-02-06 04:30:56")
     # memory.search_by_text("book")
     # import pdb; pdb.set_trace()
-    agent = ReMEmbRVideoPlanner(llm_type='gpt-4o')
+    if args.uid == "cobot3":
+        from remembr.planners.remember_video_planner2 import ReMEmbRVideoPlanner2
+        agent = ReMEmbRVideoPlanner2(llm_type='gpt-4o')
+    else:
+        agent = ReMEmbRVideoPlanner(llm_type='gpt-4o')
     agent.set_memory(memory)
     while True:
         # user_input = input("\nGive me a task (Enter 'q' to exit): ")
