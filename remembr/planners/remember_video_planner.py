@@ -36,6 +36,8 @@ from remembr.memory.milvus_video_memory import MilvusVideoMemory
 
 from remembr.planners.planner import Planner, PlannerOutput
 
+from qwen_vl_utils import process_vision_info
+
 ### Print out state of the system
 def inspect(state):
     """Print the state passed between Runnables in a langchain and pass it on"""
@@ -138,6 +140,10 @@ class ReMEmbRVideoPlanner(Planner):
 
         # Wrapper that handles everything
         llm = self.llm_selector(llm_type, temperature, num_ctx)
+        # TODO clean up
+        (vlm_t, vlm_model, vlm_processor) = self.vlm_selector("gwen")
+        self.vlm = vlm_model
+        self.vlm_processor = vlm_processor
         chat = FunctionsWrapper(llm)
 
         self.num_ctx = num_ctx
@@ -184,6 +190,21 @@ class ReMEmbRVideoPlanner(Planner):
             raise Exception("No correct LLM provided")
 
         return llm
+    
+    def vlm_selector(self, vlm_type):
+        model, processor = None, None
+        if 'gpt-4' in vlm_type:
+            import os
+            model = ChatOpenAI(model='gpt-4o', api_key=os.environ.get("OPENAI_API_KEY"))
+        elif 'gwen' in vlm_type:
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+            from qwen_vl_utils import process_vision_info
+            model_name = "Qwen/Qwen2.5-VL-7B-Instruct"
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_name, torch_dtype="auto", device_map="auto"
+            )
+            processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+        return vlm_type, model, processor
 
     def set_memory(self, memory: MilvusVideoMemory):
         self.memory = memory
@@ -242,6 +263,42 @@ class ReMEmbRVideoPlanner(Planner):
         self.tool_definitions = [convert_to_openai_function(t) for t in self.tool_list]
         
     def instance_txt(self, state):
+        
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                    },
+                    {"type": "text", "text": "Describe this image."},
+                ],
+            }
+        ]
+        text = self.vlm_processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = self.vlm_processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+        import pdb; pdb.set_trace()
+        
+        inputs = inputs.to(self.vlm.device)
+        generated_ids = self.vlm.generate(**inputs, max_new_tokens=128)
+        generated_ids_trimmed = [
+            out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        output_text = self.vlm_processor.batch_decode(
+            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+        print(output_text)
+        import pdb; pdb.set_trace()
         
         # self._group_records("someone using or drinking water with a cup/mug/bottle")
         # import pdb; pdb.set_trace

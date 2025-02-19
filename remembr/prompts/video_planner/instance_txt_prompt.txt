@@ -12,7 +12,7 @@ Your job is two-fold:
 2. If you do not have enough information, call the retrieval tools (details explained later), so you can query what you've observed in the past. Importantly, do not call the same tool with the same query multiple times, as you will get the same response.
 
 In your context, the time is given as 2025-02-06 06:33:07, which refers to the YYYY-MM-DD HH:MM:SS format. XYZ coordinates are provided in meters.
-Make sure you have called a diverse range of retrieval tools before making your decision.
+You are encouraged to call at least two types of retrieval tools (see details below) before responding.
 To complete this task, you are given two types of tools.
 Type I: __conversational_response. It calls a system to response to the user. Use this if you believe you have relevant information to answer the question. Summarize the relevant information inside your response, and a different system will provide the answer to the user. You should list the id's of a maximum of 3 records that you think you rely the most to give your description.
 To use this tool, your response should strictly follow the json format below (Your response should will be parsed by a JSON decoder without any preprocessing):
@@ -75,8 +75,13 @@ Format:
 ```
 
 Reasoning rules:
-1.  You are encouraged to leverage on a diverse of retrieval tools before making your decision.
-2.  `retrieve_from_text` is a good tool to start with. It should inform you about the time and locations you should query.
+1. You are encouraged to call at least two types of tools before making your decision.
+2. Since the descriptions of observations are noisy, you are encouraged to call `retrieve_from_text` with different levels of details of text descriptions. For example, if you want to know more about "a blue mug", you can call `retrieve_from_text` on "mug" and "blue mug", in case this mug is not captioned with enough details in some records.
+3. You are encouraged to call `retrieve_from_text` first to narrow down the scope of relevant information. Then, if you found some records highly relevant to user's question, you are encouraged to call `retrieve_from_time` on the timestamps of these relevant records to know more about the observations you made around that time.
+4. Do NOT qeury time using texts, particularly on dates:
+    a. For example, call `retrieve_from_text` on "a mug on 2025-01-01" is not acceptable. (You will get much noise from this query.)
+    b. However, calling `retrieve_from_text` on "a mug on 2025-01-01 13:00:00" (complete datetime) is okay.
+    c. In either case, if you are wondering about records of mug on 2025-01-01 13:00:00, you should separate them into two queries - retrieve_from_text("mug") and retrieve_from_time("2025-01-01 13:00:00")
 
 Example:
 User-specified task: "Today is 2025-02-06. Where is the mug that I used yesterday?"

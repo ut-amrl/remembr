@@ -21,6 +21,14 @@ if __name__ == "__main__":
         for i, inpath in enumerate(inpaths):
             memory = remember_dummy_video(inpath, time_offset=t_offset, pos_offset=p_offset, reset=(i == 0))
             t_offset += 86400; p_offset += 1
+    elif args.uid == "cobot_test":
+        inpaths = [
+            "/home/tiejean/RobotMem/data/captions/cobot/2025-02-08-16-39-19_VILA1.5-8b_3_secs.json",
+        ]
+        t_offset = 1738952666.5530548-len(inpaths)*86400 + 86400; p_offset = 0
+        for i, inpath in enumerate(inpaths):
+            memory = remember_cobot_vid(inpath, time_offset=t_offset, reset=(i == 0))
+            t_offset += 86400
     elif args.uid == "cobot1":
         inpaths = [
             "/home/tiejean/RobotMem/data/captions/cobot/2025-02-08-16-39-19_VILA1.5-8b_3_secs.json",
@@ -57,7 +65,6 @@ if __name__ == "__main__":
             t_offset += 86400
     # memory.search_by_datetime("2025-02-06 04:30:56")
     # memory.search_by_text("book")
-    # import pdb; pdb.set_trace()
     if args.uid == "cobot3":
         from remembr.planners.remember_video_planner2 import ReMEmbRVideoPlanner2
         agent = ReMEmbRVideoPlanner2(llm_type='gpt-4o')
