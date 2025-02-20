@@ -40,6 +40,7 @@ class MilvusVideoWrapper:
             FieldSchema(name='position', dtype=DataType.FLOAT_VECTOR, description='position of robot', dim=3),
             FieldSchema(name='theta', dtype=DataType.FLOAT, description='rotation of robot', dim=1),
             FieldSchema(name='time', dtype=DataType.FLOAT_VECTOR, description='time', dim=2),
+            FieldSchema(name='timestamp', dtype=DataType.DOUBLE, description='unix timestamp', dim=1),
             FieldSchema(name='caption', dtype=DataType.VARCHAR, description='caption string', max_length=3000),
             FieldSchema(name='vidpath', dtype=DataType.VARCHAR, description='video image path', max_length=200),
             FieldSchema(name='start_frame', dtype=DataType.INT64, description='video start frame', dim=1),
@@ -74,34 +75,90 @@ class MilvusVideoWrapper:
     
     def insert(self, data_list):
         res = self.collection.insert(data_list)
-
-    def search(self, data):
-
+    
+    def search_k_latest(self, db, k:int = 50, data=None):
         self.collection.load()
+        output_fields = db.fields[:]
+        
+        res = self.collection.query(
+            limit=k,
+            expr="timestamp > 0",
+            orderby=[("timestamp", "desc")],
+            output_fields=output_fields
+        )
+        start_time = res[0]["timestamp"]
+        end_time = res[-1]["timestamp"]
+        res = [res]
+        if data is not None:
+            res = self.search(data, output_fields, expr=f"timestamp >= {start_time} and timestamp <= {end_time}")
 
-        BATCH_SIZE = 2
-        LIMIT = 10
-
+        self.last_seen_time = start_time
+        ret = self._prepare_for_return(db, res)
+        return ret
+    
+    def search_next_k_latest(self, db, k:int = 50, data=None):
+        self.collection.load()
+        output_fields = db.fields[:]
+        
+        res = self.collection.query(
+            limit=k,
+            expr=f"timestamp < {self.last_seen_time}",
+            orderby=[("timestamp", "desc")],
+            output_fields=output_fields
+        )
+        import pdb; pdb.set_trace()
+        start_time = res[0]["timestamp"]
+        res = [res]
+        if data is not None:
+            res = self.search(data, output_fields, expr=f"timestamp >= {start_time} and timestamp <= {self.last_seen_time}")
+        
+        self.last_seen_time = start_time
+        ret = self._prepare_for_return(db, res)
+        return ret
+        
+    def search(self, data, output_fields, k:int = 50, expr:str = "time > 0"):
         param = {
             "metric_type": "L2",
             "params": {
-                "nprobe": 1024,
+                "nprobe": 1024
             }
         }
-
+        BATCH_SIZE = 2
         res = self.collection.search(
             data=[data],
             anns_field="text_embedding",
             param=param,
             batch_size=BATCH_SIZE,
-            limit=LIMIT,
-            # expr="id > 3",
-            output_fields=["id", "text_embedding"]
+            limit=k,
+            expr=expr,
+            output_fields=output_fields
         )
-
+        res = self._cutoff(res)
         return res
-
-
+    
+    def _prepare_for_return(self, db, res):
+        ret = []
+        output_fields = db.fields[:]
+        for result in res[0]:
+            if type(result) is dict:
+                data = {x: result[x] for x in output_fields}
+            else:
+                data = {x: result.entity.get(x) for x in output_fields}
+            doc = db._parse_document(data)
+            if type(result) is dict:
+                pair = (doc, 0.0)
+            else:
+                pair = (doc, result.score)
+            ret.append(pair)
+        return [doc for doc, _ in ret]
+    
+    def _cutoff(self, res):
+        from kneed import KneeLocator
+        scores = [x.score for x in res[0]]
+        knee_locator = KneeLocator(range(len(scores)), scores, curve="concave", direction="increasing")
+        elbow_index = knee_locator.knee
+        res[0] = res[0][:elbow_index+1]
+        return res
 
 
 class MilvusVideoMemory(Memory):
@@ -124,11 +181,12 @@ class MilvusVideoMemory(Memory):
     def insert(self, item: MemoryItem, text_embedding=None):
 
         memory_dict = asdict(item)
-        memory_dict['id'] = str(time.time())
+        memory_dict['id'] = str(memory_dict['time'] - self.time_offset)
 
         if text_embedding is None:
             text_embedding = self.embedder.embed_query(memory_dict['caption'])
 
+        memory_dict['timestamp'] = memory_dict['time'] - self.time_offset
         memory_dict['time'] =  [(memory_dict['time'] - self.time_offset), 0.0]
 
         memory_dict['text_embedding'] = text_embedding
@@ -149,22 +207,22 @@ class MilvusVideoMemory(Memory):
 
         self.milv_wrapper = MilvusVideoWrapper(self.db_collection_name, self.db_ip, self.db_port, drop_collection=drop_collection)
 
-        text_vector_db = Milvus(
+        self.text_vector_db = Milvus(
             self.embedder,
             connection_args={"host": self.db_ip, "port": self.db_port},
             collection_name=self.db_collection_name,
             vector_field='text_embedding',
             text_field='caption',
         )
-        self.text_retriever = text_vector_db.as_retriever(search_kwargs={"k": 8})
-        text_vector_db2 = Milvus(
+        self.text_retriever = self.text_vector_db.as_retriever(search_kwargs={"k": 8})
+        self.text_vector_db2 = Milvus(
             self.embedder,
             connection_args={"host": self.db_ip, "port": self.db_port},
             collection_name=self.db_collection_name,
             vector_field='text_embedding',
             text_field='caption',
         )
-        self.text_retriever2 = text_vector_db2.as_retriever(search_kwargs={"k": 100})
+        self.text_retriever2 = self.text_vector_db2.as_retriever(search_kwargs={"k": 100})
 
 
         self.position_vector_db = Milvus(
@@ -257,29 +315,35 @@ class MilvusVideoMemory(Memory):
         """Look up things online."""
         return docs 
             
-
-    def search_by_text(self, query: str) -> str:
-
-        docs = self.text_retriever.invoke(query)
-        
-        self.working_memory += docs
-
-        docs = self.memory_to_string(docs)
-
-        """Look up things online."""
-        return docs
-    
-    def searck_k_by_text(self, query: str, k: int) -> str:
-        docs = self.text_retriever2.invoke(query)
-        self.working_memory += docs
-        docs = self.memory_to_json(docs)
-        """Look up things online."""
-        return docs
-    
     ### Return json string for dictionry
     def video_search_by_text(self, query: str) -> str:
         docs = self.text_retriever.invoke(query)
-        self.working_memory += docs
+        docs = self.memory_to_json(docs)
+        return docs
+    
+    def video_search_k_by_text(self, query: str, k: int=5) -> str:
+        query_embedding = self.embedder.embed_query(query)
+        docs = similarity_search_with_score_by_vector(
+            self.text_vector_db, 
+            query_embedding,
+            k=k
+        )
+        docs = self.memory_to_json(docs)
+        return docs
+    
+    def search_k_lastest(self, query=None, k: int=50) -> str:
+        query_embedding = None
+        if query is not None:
+            query_embedding = self.embedder.embed_query(query)
+        docs = self.milv_wrapper.search_k_latest(self.text_vector_db, data=query_embedding, k=k)
+        docs = self.memory_to_json(docs)
+        return docs
+    
+    def search_next_k_latest(self, query=None, k: int=50) -> str:
+        query_embedding = None
+        if query is not None:
+            query_embedding = self.embedder.embed_query(query)
+        docs = self.milv_wrapper.search_next_k_latest(self.text_vector_db, data=query_embedding, k=k)
         docs = self.memory_to_json(docs)
         return docs
 
@@ -321,7 +385,6 @@ class MilvusVideoMemory(Memory):
         import json
         return json.dumps(rets)
 
-
 # NOTE: This version of the code returns the vector
 def similarity_search_with_score_by_vector(
         pos_db,
@@ -329,6 +392,7 @@ def similarity_search_with_score_by_vector(
         k: int = 4,
         param: Optional[dict] = None,
         expr: Optional[str] = None,
+        orderby: Optional[list] = None,
         timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> List[Tuple[Document, float]]:
@@ -369,6 +433,7 @@ def similarity_search_with_score_by_vector(
             param=param,
             limit=k,
             expr=expr,
+            orderby=orderby,
             output_fields=output_fields,
             timeout=timeout,
             **kwargs,
@@ -380,6 +445,7 @@ def similarity_search_with_score_by_vector(
             doc = pos_db._parse_document(data)
             pair = (doc, result.score)
             ret.append(pair)
+        import pdb; pdb.set_trace()
 
         return [doc for doc, _ in ret]
 
