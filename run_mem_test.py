@@ -12,11 +12,13 @@ if __name__ == "__main__":
         t_offset += 86400
     # res = memory.video_search_by_text("cup")
     records = []
-    res = memory.search_k_lastest(k=10)
+    res = memory.search_k_lastest(True, k=50, query="cup")
     records.append(eval(res))
-    res = memory.search_next_k_latest(k=10)
+    res = memory.search_k_lastest(False, k=50, query="cup")
     records.append(eval(res))
     # res = memory.search_by_datetime("2025-02-07 12:00:00")
+    print(len(records[0]))
+    print(len(records[1]))
     import pdb; pdb.set_trace()
     # import numpy as np
     # from kneed import KneeLocator

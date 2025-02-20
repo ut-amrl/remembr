@@ -35,7 +35,7 @@ class MilvusVideoWrapper:
             utility.drop_collection(collection_name)
         
         fields = [
-            FieldSchema(name='id', dtype=DataType.VARCHAR, description='ids', is_primary=True, auto_id=False, max_length=1000),
+            FieldSchema(name='id', dtype=DataType.INT64, description='ids', is_primary=True, auto_id=False),
             FieldSchema(name='text_embedding', dtype=DataType.FLOAT_VECTOR, description='embedding vectors', dim=dim),
             FieldSchema(name='position', dtype=DataType.FLOAT_VECTOR, description='position of robot', dim=3),
             FieldSchema(name='theta', dtype=DataType.FLOAT, description='rotation of robot', dim=1),
@@ -75,66 +75,40 @@ class MilvusVideoWrapper:
     
     def insert(self, data_list):
         res = self.collection.insert(data_list)
-    
-    def search_k_latest(self, db, k:int = 50, data=None):
+        
+    def search(self, db, expr:str="timestamp > 0", data=None, k:int=100, elbow_cutoff:bool=False):
         self.collection.load()
         output_fields = db.fields[:]
-        
-        res = self.collection.query(
-            limit=k,
-            expr="timestamp > 0",
-            orderby=[("timestamp", "desc")],
-            output_fields=output_fields
-        )
-        start_time = res[0]["timestamp"]
-        end_time = res[-1]["timestamp"]
-        res = [res]
-        if data is not None:
-            res = self.search(data, output_fields, expr=f"timestamp >= {start_time} and timestamp <= {end_time}")
-
-        self.last_seen_time = start_time
-        ret = self._prepare_for_return(db, res)
-        return ret
-    
-    def search_next_k_latest(self, db, k:int = 50, data=None):
-        self.collection.load()
-        output_fields = db.fields[:]
-        
-        res = self.collection.query(
-            limit=k,
-            expr=f"timestamp < {self.last_seen_time}",
-            orderby=[("timestamp", "desc")],
-            output_fields=output_fields
-        )
-        import pdb; pdb.set_trace()
-        start_time = res[0]["timestamp"]
-        res = [res]
-        if data is not None:
-            res = self.search(data, output_fields, expr=f"timestamp >= {start_time} and timestamp <= {self.last_seen_time}")
-        
-        self.last_seen_time = start_time
-        ret = self._prepare_for_return(db, res)
-        return ret
-        
-    def search(self, data, output_fields, k:int = 50, expr:str = "time > 0"):
-        param = {
-            "metric_type": "L2",
-            "params": {
-                "nprobe": 1024
+        if data is None:
+            res = self.collection.query(
+                limit=k, 
+                expr=expr, 
+                output_fields=output_fields,
+                consistency_level="Strong"
+            )
+            res = [res]
+        else: 
+            param = {
+                "metric_type": "L2",
+                "params": {
+                    "nprobe": 1024
+                }
             }
-        }
-        BATCH_SIZE = 2
-        res = self.collection.search(
-            data=[data],
-            anns_field="text_embedding",
-            param=param,
-            batch_size=BATCH_SIZE,
-            limit=k,
-            expr=expr,
-            output_fields=output_fields
-        )
-        res = self._cutoff(res)
-        return res
+            BATCH_SIZE = 2
+            res = self.collection.search(
+                data=[data],
+                anns_field="text_embedding",
+                param=param,
+                batch_size=BATCH_SIZE,
+                limit=k,
+                expr=expr,
+                output_fields=output_fields,
+                consistency_level="Strong"
+            )
+            if elbow_cutoff:
+                res = self._cutoff(res)
+        ret = self._prepare_for_return(db, res)
+        return ret
     
     def _prepare_for_return(self, db, res):
         ret = []
@@ -156,7 +130,7 @@ class MilvusVideoWrapper:
         from kneed import KneeLocator
         scores = [x.score for x in res[0]]
         knee_locator = KneeLocator(range(len(scores)), scores, curve="concave", direction="increasing")
-        elbow_index = knee_locator.knee
+        elbow_index = max(knee_locator.knee, 1)
         res[0] = res[0][:elbow_index+1]
         return res
 
@@ -176,12 +150,15 @@ class MilvusVideoMemory(Memory):
         self.working_memory = []
 
         self.reset(drop_collection=False)
+        self.last_id = 0 # TODO FIX ME
+        self.last_seen_id = 0
 
 
     def insert(self, item: MemoryItem, text_embedding=None):
 
         memory_dict = asdict(item)
-        memory_dict['id'] = str(memory_dict['time'] - self.time_offset)
+        memory_dict['id'] = self.last_id
+        self.last_id += 1
 
         if text_embedding is None:
             text_embedding = self.embedder.embed_query(memory_dict['caption'])
@@ -331,19 +308,18 @@ class MilvusVideoMemory(Memory):
         docs = self.memory_to_json(docs)
         return docs
     
-    def search_k_lastest(self, query=None, k: int=50) -> str:
+    def search_k_lastest(self, isFirstTime:bool, query=None, k: int=30) -> str:
         query_embedding = None
+        elbow_cutoff = False
         if query is not None:
             query_embedding = self.embedder.embed_query(query)
-        docs = self.milv_wrapper.search_k_latest(self.text_vector_db, data=query_embedding, k=k)
-        docs = self.memory_to_json(docs)
-        return docs
-    
-    def search_next_k_latest(self, query=None, k: int=50) -> str:
-        query_embedding = None
-        if query is not None:
-            query_embedding = self.embedder.embed_query(query)
-        docs = self.milv_wrapper.search_next_k_latest(self.text_vector_db, data=query_embedding, k=k)
+            elbow_cutoff = True
+        if isFirstTime:
+            start_id, end_id = max(self.last_id-k, 0), self.last_id
+        else:
+            start_id, end_id = max(self.last_seen_id-k, 0), self.last_id
+        docs = self.milv_wrapper.search(self.text_vector_db, expr=f"id >= {start_id} and id < {end_id}", data=query_embedding, k=k, elbow_cutoff=elbow_cutoff)
+        self.last_seen_id = start_id
         docs = self.memory_to_json(docs)
         return docs
 
