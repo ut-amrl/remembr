@@ -95,6 +95,7 @@ class AgentState(TypedDict):
     identified_instance: Annotated[Sequence, replace_messages]
     instance_text: Annotated[Sequence, replace_messages]
     filtered_messages: Annotated[Sequence, replace_messages]
+    identified_record: Annotated[Sequence, replace_messages]
 
 def filter_retrieved_record(messages: list):
     records = [msg.content for msg in filter(lambda x: isinstance(x, ToolMessage), messages)]
@@ -264,45 +265,6 @@ class ReMEmbRVideoPlanner(Planner):
         
     def instance_txt(self, state):
         
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
-                    },
-                    {"type": "text", "text": "Describe this image."},
-                ],
-            }
-        ]
-        text = self.vlm_processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-        )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = self.vlm_processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
-        import pdb; pdb.set_trace()
-        
-        inputs = inputs.to(self.vlm.device)
-        generated_ids = self.vlm.generate(**inputs, max_new_tokens=128)
-        generated_ids_trimmed = [
-            out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        output_text = self.vlm_processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
-        print(output_text)
-        import pdb; pdb.set_trace()
-        
-        # self._group_records("someone using or drinking water with a cup/mug/bottle")
-        # import pdb; pdb.set_trace
-        
         messages = state["messages"]
         model = self.chat
         if self.object_query_call_cnt < self.config_max_object_query_call_cnt:
@@ -353,7 +315,6 @@ class ReMEmbRVideoPlanner(Planner):
                     args = re.sub("\{.*?\}", "", str(tool_call['args'])) # remove curly braces
                     self.previous_tool_requests += f"I previously used the {tool_call['name']} tool with the arguments: {args}.\n"
             self.object_query_call_cnt += 1
-            
         if not response.tool_calls:
             response_content = eval(response.content)
             record_ids = response_content["record_ids"]
@@ -401,6 +362,8 @@ class ReMEmbRVideoPlanner(Planner):
         response = model.invoke({"question": question, "chat_history": parsed_processed_records})
         
         identified_records = self._parse_vid_response(response, retrieved_records)
+        
+        import pdb; pdb.set_trace()
         
         # TODO handle the logics here
         if True:
@@ -468,6 +431,13 @@ class ReMEmbRVideoPlanner(Planner):
         elif type.lower() == "pil":
             from PIL import Image; img = Image.open(imgpath)
             return img
+        elif type.lower() == "utf-8-qwen":
+            import base64
+            with open(imgpath, "rb") as imgfile:
+                data = imgfile.read()
+                img = base64.b64encode(data)
+                encoded_img = copy.copy(img.decode("utf-8"))
+            return {"type": "image", "image": f"data:image/png;base64,{encoded_img}"}
         elif type.lower() == "utf-8":
             import base64
             with open(imgpath, "rb") as imgfile:
@@ -642,49 +612,91 @@ class ReMEmbRVideoPlanner(Planner):
             identified_instances.append(entry)
         return {"identified_instance": identified_instances, "messages": [response]}
     
+    # def backward_search(self, state):
+    #     pass
+    
+    def _is_same_instance(self, img1, img2, task: str):
+        messages = [
+            {
+                "role": "system",
+                "content": "You will be provided with 2 images. They may contain the same instance viewing from very different perspectives. Please provide a 'yes' or 'no' answer to the following question. Do not answer anything other than 'yes' or 'no'"
+            },
+            {
+                "role": "user",
+                "content": [
+                    img1,
+                    img2,
+                    {
+                        "type": "text", 
+                        # "text": f"In your context, user asked a question: {task}. You have identified that user was referring to the object appeared on the first image. Do both images contain the same instance referred by the user?"
+                        "text": "Do these 2 images have the same book?"
+                    },
+                ]
+            }
+        ]
+        
+        text = self.vlm_processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = self.vlm_processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+        inputs = inputs.to(self.vlm.device)
+        generated_ids = self.vlm.generate(**inputs, max_new_tokens=128)
+        generated_ids_trimmed = [
+            out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        output_text = self.vlm_processor.batch_decode(
+            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+        return "yes" in output_text[0].lower()
+    
     def backward_search(self, state):
         # last_message = state["messages"][-1]
         # instance_txt_query = eval(last_message.content)
         # instance_txt_query = instance_txt_query["text"]
+        task = state["messages"][0].content
+        last_message = state["messages"][-1]
+        episode = eval(last_message.content)
+        if type(episode["record_ids"]) is str:
+            episode["record_ids"] = eval(episode["record_ids"])
+        identified_record_ids = [int(x) for x in episode["record_ids"]]
+        record_id = identified_record_ids[0]
+        # records = eval(self.memory.get_by_id(record_id))
+        records = eval(self.memory.get_by_id(24))
+        vid_info = records[0]
+        target_img = self._get_image(vid_info, type="utf-8-qwen")
         
-        identified_instances = state["identified_instance"]
-        for identified_instance in identified_instances:
-            instance_txt_query = identified_instance["desc"]
+        identified_record = None
+        for i in range(3): #TODO
+            if identified_record is not None:
+                break
+            if "cup" in task or "bottle" in task:
+                records = self.memory.search_k_lastest(isFirstTime=(i==0), query="cup, water bottle, mug, or anything to drink", k=30)
+            elif "book" in task:
+                records = self.memory.search_k_lastest(isFirstTime=(i==0), query="book", k=10)
+            else:
+                raise ValueError("undefined flow")
+            records = eval(records)
+            import pdb; pdb.set_trace()
+            for record in records[::-1]:
+                img = self._get_image(record, type="utf-8-qwen")
+                cv2.imwrite("debug/img1.png", self._get_image(vid_info))
+                cv2.imwrite("debug/img2.png", self._get_image(record))
+                print(record["id"])
+                if self._is_same_instance(target_img, img, task=task):
+                    identified_record = copy.copy(record)
+                    break
+        debugdir = "/home/tiejean/RobotMem/remembr/debug/top1_now"
+        self._debug_vid(record, debugdir)
+        import pdb; pdb.set_trace()
         
-            import time; from time import strftime, localtime
-            
-            # TODO FIX ME
-            currtime = time.time()
-            currtime = 1738900977.4448056 # TODO delete me
-            
-            retrieved_records = self._retrieve_all_records(instance_txt_query, date="02-07") # TODO FIX ME
-            import pdb; pdb.set_trace()
-            # retrieved_records = self._retrieve_records_by_time(time=currtime, instance_txt=instance_txt_query)
-            processed_records = []
-            for record in retrieved_records:
-                processed_record = {"record_id": record["id"], "text": record["text"]}
-                processed_records.append(processed_record)
-            parsed_processed_records = [json.dumps(record) for record in processed_records]
-            
-            vid_question = f"I want to find an object that match this desciption: {instance_txt_query}. When is the last time I saw this object?"
-            vid_response_msg = self._find_vids(records=parsed_processed_records, question=vid_question)
-            vid_response = eval(vid_response_msg.content)
-            loc_question = f"I want to find an object that match this desciption: {instance_txt_query}. Where did I observe this object last time?"
-            loc_response_msg = self._find_locs(records=parsed_processed_records, question=loc_question)
-            loc_response = eval(loc_response_msg.content)
-            
-            debugdir = "/home/tiejean/RobotMem/remembr/debug/top1_now"
-            for record in retrieved_records:
-                if record["id"] == vid_response["top_1_record"]:
-                    self._debug_vid(record, debugdir)
-            if len(vid_response["top_2_record"]) > 0:
-                debugdir = "/home/tiejean/RobotMem/remembr/debug/top2_now"
-                for record in retrieved_records:
-                    if record["id"] == vid_response["top_2_record"]:
-                        self._debug_vid(record, debugdir)
-            import pdb; pdb.set_trace()
-            
-        return {"messages": [vid_response, loc_response]}
+        return {"identified_record": identified_record}
 
     def build_graph(self):
 
@@ -705,11 +717,19 @@ class ReMEmbRVideoPlanner(Planner):
             from_object_to,
             {
                 "call_tools": "instance_query_tools",
-                "next": "instance_vid"
+                "next": "backward_search"
             }
         )
-        workflow.add_edge("instance_vid", "instance_desc")
-        workflow.add_edge("instance_desc", "backward_search")
+        # workflow.add_conditional_edges(
+        #     "instance_txt",
+        #     from_object_to,
+        #     {
+        #         "call_tools": "instance_query_tools",
+        #         "next": "instance_vid"
+        #     }
+        # )
+        # workflow.add_edge("instance_vid", "instance_desc")
+        # workflow.add_edge("instance_desc", "backward_search")
         workflow.add_edge("backward_search", END)
         
         workflow.set_entry_point("instance_txt")

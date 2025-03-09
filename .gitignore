@@ -1,4 +1,4 @@
-debug/
+debug/*
 standalone_embed.sh
 user.yaml
 

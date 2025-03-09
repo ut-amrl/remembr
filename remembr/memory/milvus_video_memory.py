@@ -105,6 +105,7 @@ class MilvusVideoWrapper:
                 output_fields=output_fields,
                 consistency_level="Strong"
             )
+            import pdb; pdb.set_trace()
             if elbow_cutoff:
                 res = self._cutoff(res)
         ret = self._prepare_for_return(db, res)
@@ -128,9 +129,11 @@ class MilvusVideoWrapper:
     
     def _cutoff(self, res):
         from kneed import KneeLocator
+        # [(x.score, x.entity.id) for x in res[0]]
         scores = [x.score for x in res[0]]
         knee_locator = KneeLocator(range(len(scores)), scores, curve="concave", direction="increasing")
         elbow_index = max(knee_locator.knee, 1)
+        # import pdb; pdb.set_trace()
         res[0] = res[0][:elbow_index+1]
         return res
 
@@ -191,7 +194,7 @@ class MilvusVideoMemory(Memory):
             vector_field='text_embedding',
             text_field='caption',
         )
-        self.text_retriever = self.text_vector_db.as_retriever(search_kwargs={"k": 8})
+        self.text_retriever = self.text_vector_db.as_retriever(search_kwargs={"k": 15})
         self.text_vector_db2 = Milvus(
             self.embedder,
             connection_args={"host": self.db_ip, "port": self.db_port},
@@ -298,13 +301,14 @@ class MilvusVideoMemory(Memory):
         docs = self.memory_to_json(docs)
         return docs
     
-    def video_search_k_by_text(self, query: str, k: int=5) -> str:
+    def video_search_k_by_text(self, query: str, k: int=10) -> str:
         query_embedding = self.embedder.embed_query(query)
-        docs = similarity_search_with_score_by_vector(
-            self.text_vector_db, 
-            query_embedding,
-            k=k
-        )
+        docs = self.milv_wrapper.search(self.text_vector_db, data=query_embedding, k=k)
+        # docs = similarity_search_with_score_by_vector(
+        #     self.text_vector_db, 
+        #     query_embedding,
+        #     k=k
+        # )
         docs = self.memory_to_json(docs)
         return docs
     
@@ -317,9 +321,14 @@ class MilvusVideoMemory(Memory):
         if isFirstTime:
             start_id, end_id = max(self.last_id-k, 0), self.last_id
         else:
-            start_id, end_id = max(self.last_seen_id-k, 0), self.last_id
+            start_id, end_id = max(self.last_seen_id-k, 0), self.last_seen_id
         docs = self.milv_wrapper.search(self.text_vector_db, expr=f"id >= {start_id} and id < {end_id}", data=query_embedding, k=k, elbow_cutoff=elbow_cutoff)
         self.last_seen_id = start_id
+        docs = self.memory_to_json(docs)
+        return docs
+    
+    def get_by_id(self, id: int) -> str:
+        docs = self.milv_wrapper.search(self.text_vector_db, expr=f"id == {id}")
         docs = self.memory_to_json(docs)
         return docs
 
@@ -421,7 +430,6 @@ def similarity_search_with_score_by_vector(
             doc = pos_db._parse_document(data)
             pair = (doc, result.score)
             ret.append(pair)
-        import pdb; pdb.set_trace()
 
         return [doc for doc, _ in ret]
 

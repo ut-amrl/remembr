@@ -89,8 +89,7 @@ def remember_dummy_video(inpath: str, time_offset: float = 0, pos_offset: float 
             pos_offset += 1
     return memory
 
-def remember_cobot_vid(inpath: list, time_offset: float = 0, reset: bool = True) -> MilvusVideoMemory:
-    memory = MilvusVideoMemory(MAIN_MEM, db_ip='127.0.0.1')
+def remember_cobot_vid(memory, inpath: list, time_offset: float = 0, reset: bool = True) -> MilvusVideoMemory:
     if reset:
         memory.reset()
     start_time = None
